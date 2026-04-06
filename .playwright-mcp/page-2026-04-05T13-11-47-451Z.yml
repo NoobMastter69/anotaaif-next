@@ -1,0 +1,25 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - img [ref=e6]
+        - generic [ref=e11]:
+          - heading [level=1] [ref=e12]: AnotaAIF
+          - paragraph [ref=e13]: 2º Ano · Informática
+      - tablist [ref=e14]:
+        - tab "Entrar" [selected] [ref=e15] [cursor=pointer]
+        - tab "Criar conta" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]: Nome completo
+          - textbox "Nome completo" [active] [ref=e20]:
+            - /placeholder: "Ex: João Silva"
+        - generic [ref=e21]:
+          - generic [ref=e22]: Senha
+          - textbox "Senha" [ref=e23]:
+            - /placeholder: Mínimo 6 caracteres
+        - button "Entrar" [ref=e24] [cursor=pointer]
+    - paragraph [ref=e25]: Feito para a galera do IF ✌️
+  - button "Open Next.js Dev Tools" [ref=e31] [cursor=pointer]:
+    - img [ref=e32]
+  - alert [ref=e35]
