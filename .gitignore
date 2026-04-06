@@ -36,6 +36,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# claude / playwright logs
+.claude/
+.playwright-mcp/
+
+# preview icons (gerados localmente)
+public/icons/preview-icon.png
+public/icons/logo-white.png
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
