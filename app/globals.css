@@ -112,23 +112,18 @@ body {
 }
 
 .logo-mark {
-  width: 96px;
-  height: 38px;
-  background: white;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
 
 .logo-img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  padding: 5px 8px;
+  object-fit: cover;
+  display: block;
 }
 
 .app-title {
@@ -275,11 +270,16 @@ body {
 
 .task-accent { width: 4px; flex-shrink: 0; }
 
+.urgency-expired .task-accent { background: #aaa; }
 .urgency-overdue .task-accent { background: var(--red); }
 .urgency-soon    .task-accent { background: var(--orange); }
 .urgency-ok      .task-accent { background: var(--ok-green); }
 .task-card.done  .task-accent { background: var(--border-strong); }
 
+.urgency-expired:not(.done) {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
 .urgency-overdue:not(.done) {
   background: linear-gradient(90deg, #FFF7F7 0%, var(--surface) 30%);
 }
@@ -360,6 +360,7 @@ body {
   padding: 2px 7px 2px 5px;
 }
 
+.urgency-expired:not(.done) .task-due { background: #eee; color: #888; }
 .urgency-overdue:not(.done) .task-due { background: var(--red-pale);    color: var(--red); }
 .urgency-soon:not(.done)    .task-due { background: var(--orange-pale);  color: #92400E; }
 .urgency-ok:not(.done)      .task-due { background: var(--ok-pale);      color: #166534; }
@@ -884,6 +885,9 @@ body {
     max-width: 1080px;
     width: 100%;
     min-height: calc(100dvh - 64px);
+    /* Pinta a coluna da sidebar de verde mesmo quando o conteúdo direito
+       é mais alto que a sidebar sticky */
+    background: linear-gradient(90deg, var(--green-dark) 268px, var(--bg) 268px);
     /* Sem overflow:clip — evita bug do Chromium que contém position:fixed
        dentro do elemento, quebrando snackbar e modal-overlay.
        O border-radius é aplicado individualmente nos filhos abaixo. */
@@ -1275,27 +1279,39 @@ body {
   border-color: rgba(255,255,255,0.5);
 }
 
-/* Botão painel admin */
+/* Toggle admin (ícone compacto — visível sempre) */
+.btn-admin-toggle {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+  color: rgba(255,255,255,0.85); font-family: var(--font-body); font-size: 13px;
+  font-weight: 600; cursor: pointer;
+}
+.btn-admin-toggle svg:first-child { width: 16px; height: 16px; flex-shrink: 0; }
+.toggle-chevron { width: 14px; height: 14px; margin-left: auto; transition: transform .2s; }
+.toggle-chevron.open { transform: rotate(180deg); }
+
+/* Painel expansível — mobile: oculto por padrão */
+.admin-bar-panel { display: none; flex-direction: column; gap: 6px; margin-top: 4px; }
+.admin-bar-panel.open { display: flex; }
+
+/* Desktop: toggle oculto, painel sempre visível */
+@media (min-width: 768px) {
+  .btn-admin-toggle { display: none; }
+  .admin-bar-panel { display: flex !important; margin-top: 0; }
+}
+
+/* Botão de navegação dentro do painel */
 .btn-admin-panel {
-  width: 100%;
-  padding: 8px 14px 8px 12px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.16);
-  color: rgba(255,255,255,0.75);
-  font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  display: none;
-  align-items: center;
-  gap: 7px;
+  width: 100%; display: flex; align-items: center; gap: 7px;
+  padding: 8px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+  color: rgba(255,255,255,0.75); font-family: var(--font-body); font-size: 13px;
+  font-weight: 500; cursor: pointer; text-align: left;
   transition: background 0.15s, color 0.15s;
 }
 .btn-admin-panel svg { width: 15px; height: 15px; flex-shrink: 0; }
 .btn-admin-panel:hover { background: rgba(255,255,255,0.16); color: white; }
-.btn-admin-panel { display: flex; }
 
 /* ══════════════════════════════════════════════════════
    PAINEL ADMIN (/admin)
@@ -1335,6 +1351,10 @@ body {
   height: 100dvh; color: var(--text-secondary); font-family: var(--font-body);
 }
 .admin-page { min-height: 100dvh; background: var(--bg); }
+@media (min-width: 768px) {
+  .admin-page { grid-column: 1 / -1; border-radius: var(--r-xl); overflow: hidden; min-height: calc(100dvh - 64px); }
+  .admin-main { max-width: 860px; }
+}
 .admin-header {
   background: linear-gradient(135deg, var(--green-primary) 0%, var(--green-dark) 100%);
   padding: 0 16px; padding-top: env(safe-area-inset-top);
@@ -1375,15 +1395,57 @@ body {
 .admin-turma-meta { font-size: 12px; color: var(--text-secondary); flex: 1; }
 .admin-turma-count { font-size: 11px; color: var(--text-muted); }
 .admin-student-list { list-style: none; margin: 0; padding: 0; }
+/* student item — mobile-first, wrap em telas pequenas */
 .admin-student-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
   font-family: var(--font-body);
 }
 .admin-student-item:last-child { border-bottom: none; }
-.admin-student-name { flex: 1; font-size: 14px; color: var(--text-primary); }
-.admin-badge-admin { background: #E8F5E9; color: var(--green-primary); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
-.admin-student-date { font-size: 11px; color: var(--text-muted); }
+
+/* bloco nome + cargo */
+.asi-info { flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 2px; }
+.asi-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.asi-sub  { font-size: 11px; color: var(--text-muted); }
+
+/* badge de cargo colorido */
+.asi-role { display: inline-block; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; width: fit-content; }
+.role-admin   { background: #E8F5E9; color: var(--green-primary); }
+.role-mod     { background: #E3F2FD; color: #1565C0; }
+.role-student { background: #F5F5F5; color: var(--text-muted); }
+
+/* badges extras */
+.admin-badge-kick { background: #FFF3E0; color: #E65100; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; align-self: center; }
+
+/* botões de ação — empurra pro final da linha */
+.asi-actions { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+
+.admin-btn {
+  border: 1px solid var(--border); background: white; border-radius: 6px;
+  padding: 5px 11px; font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--text-primary); white-space: nowrap; font-family: var(--font-body);
+}
+.admin-btn:active { opacity: 0.7; }
+.admin-btn-active { background: #E8F5E9; color: var(--green-primary); border-color: var(--green-primary); }
+.admin-btn-danger { background: #FFEBEE; color: #c0392b; border-color: #efb4b4; }
+.admin-btn-muted  { color: var(--text-muted); }
+
+/* flash toast */
+.admin-flash {
+  position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+  background: #1a1a1a; color: white; border-radius: 20px;
+  padding: 9px 22px; font-size: 13px; font-family: var(--font-body);
+  z-index: 999; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  animation: fadeInUp .2s ease;
+}
+@keyframes fadeInUp { from { opacity:0; transform: translateX(-50%) translateY(8px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+
+/* desktop: itens em linha horizontal */
+@media (min-width: 600px) {
+  .admin-student-item { align-items: center; flex-wrap: nowrap; }
+  .asi-actions { flex-wrap: nowrap; }
+}
+
 .admin-empty { text-align: center; color: var(--text-muted); padding: 40px; font-family: var(--font-body); }
 
 /* ══════════════════════════════════════════════════════
@@ -1481,7 +1543,7 @@ body {
 
   .auth-panel-logo-wrap {
     background: white;
-    border-radius: 16px;
+    border-radius: 0;
     padding: 10px;
     margin-bottom: 20px;
     display: inline-flex;
@@ -1569,17 +1631,16 @@ body {
 }
 
 .auth-logo-icon-wrap {
-  background: white;
+  width: 48px;
+  height: 48px;
   border-radius: 10px;
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
+  overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
 }
 .auth-logo-img-real {
-  height: 32px;
-  width: auto;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
 }
 
