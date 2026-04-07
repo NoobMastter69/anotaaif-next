@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 // Gerador de e-mail interno (usado pelo Supabase Auth)
@@ -17,53 +17,13 @@ export function nameToEmail(fullName) {
 
 // ── Opções dos dropdowns ──────────────────────────────
 const CAMPUS_OPTIONS = [
-  'IFSP – São Paulo (Capital)',
-  'IFSP – Araraquara',
-  'IFSP – Araras',
-  'IFSP – Barretos',
-  'IFSP – Birigui',
-  'IFSP – Boituva',
-  'IFSP – Bragança Paulista',
-  'IFSP – Campinas',
-  'IFSP – Capivari',
-  'IFSP – Caraguatatuba',
-  'IFSP – Catanduva',
-  'IFSP – Cubatão',
-  'IFSP – Guarulhos',
-  'IFSP – Hortolândia',
-  'IFSP – Igualada',
   'IFSP – Itapetininga',
-  'IFSP – Itaquaquecetuba',
-  'IFSP – Jacareí',
-  'IFSP – Jundiaí',
-  'IFSP – Matão',
-  'IFSP – Mogi das Cruzes',
-  'IFSP – Piracicaba',
-  'IFSP – Pirituba',
-  'IFSP – Presidente Epitácio',
-  'IFSP – Registro',
-  'IFSP – Salto',
-  'IFSP – São Carlos',
-  'IFSP – São João da Boa Vista',
-  'IFSP – São José dos Campos',
-  'IFSP – São Roque',
-  'IFSP – Sertãozinho',
-  'IFSP – Sorocaba',
-  'IFSP – Suzano',
-  'IFSP – Tupã',
-  'Outro',
 ]
 
 const CURSO_OPTIONS = [
   'Informática',
-  'Administração',
-  'Eletrônica',
   'Edificações',
-  'Mecânica',
-  'Logística',
-  'Química',
-  'Desenvolvimento de Sistemas',
-  'Outro',
+  'Eletromecânica',
 ]
 
 const ANO_TURMA_OPTIONS = [
@@ -88,10 +48,30 @@ export default function AuthScreen({ onAuth }) {
   const [curso, setCurso]                     = useState('')
   const [anoTurma, setAnoTurma]               = useState('')
   const [classCode, setClassCode]             = useState('')
+  const [joiningRoom, setJoiningRoom]         = useState(null) // { ano_turma, curso } da sala encontrada
 
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
   const [newRoomCode, setNewRoomCode] = useState('')
+
+  // Lê ?join=CODE da URL e pré-preenche o código de sala
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const join = params.get('join')
+    if (join) {
+      setClassCode(join.toUpperCase())
+      setMode('register')
+    }
+  }, [])
+
+  // Quando usuário digita um código, verifica se sala existe
+  useEffect(() => {
+    if (!classCode.trim() || classCode.trim().length < 4) { setJoiningRoom(null); return }
+    const code = classCode.trim().toUpperCase()
+    supabase.from('rooms').select('ano_turma, curso, campus').eq('class_code', code).maybeSingle()
+      .then(({ data }) => setJoiningRoom(data ?? null))
+  }, [classCode])
 
   function switchMode(m) {
     setMode(m)
@@ -144,11 +124,46 @@ export default function AuthScreen({ onAuth }) {
 
     setLoading(true)
     const email = nameToEmail(name.trim())
-    // Se não informou código, gera um automaticamente e a pessoa vira admin da sala
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    const autoCode = Array.from({length: 8}, () => chars[Math.floor(Math.random()*chars.length)]).join('')
-    const code  = classCode.trim().toUpperCase() || autoCode
-    const isNewRoom = !classCode.trim()
+
+    // Resolve o código da sala
+    let code = ''
+    let isNewRoom = false
+
+    if (classCode.trim()) {
+      // Usuário informou um código — verifica se existe
+      code = classCode.trim().toUpperCase()
+      const { data: existingRoom } = await supabase.from('rooms').select('class_code').eq('class_code', code).maybeSingle()
+      if (!existingRoom) {
+        setError('Código de sala não encontrado. Verifique com quem te convidou.')
+        setLoading(false)
+        return
+      }
+    } else {
+      // Sem código: tenta encontrar sala existente para (campus, curso, ano_turma)
+      const { data: existingRoom } = await supabase.from('rooms')
+        .select('class_code')
+        .eq('campus', campus)
+        .eq('curso', curso)
+        .eq('ano_turma', anoTurma)
+        .maybeSingle()
+
+      if (existingRoom) {
+        // Sala já existe — entra nela
+        code = existingRoom.class_code
+        isNewRoom = false
+      } else {
+        // Cria nova sala — o aluno vira admin da sala
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+        const { error: roomErr } = await supabase.from('rooms').insert({ class_code: code, campus, curso, ano_turma: anoTurma })
+        if (roomErr) {
+          // Race condition: outra pessoa criou agora — busca novamente
+          const { data: raceRoom } = await supabase.from('rooms').select('class_code').eq('campus', campus).eq('curso', curso).eq('ano_turma', anoTurma).maybeSingle()
+          code = raceRoom?.class_code ?? code
+        }
+        isNewRoom = true
+      }
+    }
 
     try {
       if (mode === 'register') {
@@ -159,7 +174,6 @@ export default function AuthScreen({ onAuth }) {
         })
         if (err) throw err
 
-        // Se não há sessão (confirmação de email pendente), faz login para obter uma
         let activeUser = data.user
         if (!data.session) {
           const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
@@ -167,7 +181,6 @@ export default function AuthScreen({ onAuth }) {
           activeUser = signInData.user
         }
 
-        // Cria o perfil vinculado ao usuário
         const { error: profileErr } = await supabase.from('profiles').insert({
           id:            activeUser.id,
           full_name:     name.trim(),
@@ -176,7 +189,7 @@ export default function AuthScreen({ onAuth }) {
           curso,
           ano_turma:     anoTurma,
           class_code:    code,
-          is_admin:      isNewRoom,  // criou sala nova = admin
+          is_admin:      isNewRoom,
         })
         if (profileErr) throw profileErr
 
@@ -210,19 +223,20 @@ export default function AuthScreen({ onAuth }) {
   }
 
   return (
-    <div className="auth-screen">
-      {/* Fundo decorativo (só mobile) */}
-      <div className="auth-bg" aria-hidden="true">
+    // Destrancando a altura da tela principal
+    <div className="auth-screen" style={{ minHeight: '100vh', height: 'auto', overflowY: 'auto' }}>
+      
+      <div className="auth-bg" aria-hidden="true" style={{ position: 'fixed' }}>
         <div className="auth-blob auth-blob-1" />
         <div className="auth-blob auth-blob-2" />
       </div>
 
-      <div className="auth-card">
+      {/* Destrancando a altura do Card branco */}
+      <div className="auth-card" style={{ margin: '20px auto', height: 'auto', maxHeight: 'none' }}>
 
-        {/* ── Painel esquerdo (desktop) ──────────────── */}
         <div className="auth-panel-left" aria-hidden="true">
           <div className="auth-panel-logo-wrap">
-            <img src="/icons/icon-192.png" alt="Anota AIF!" className="auth-panel-logo-img" />
+            <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="auth-panel-logo-img" />
           </div>
           <h2 className="auth-panel-title">Anota AIF!</h2>
           <p className="auth-panel-sub">Organização escolar do IF</p>
@@ -231,15 +245,15 @@ export default function AuthScreen({ onAuth }) {
             <li>Calendário acadêmico do IF</li>
             <li>Alertas de prazo em tempo real</li>
           </ul>
-          <p className="auth-panel-footer">Feito para a galera do IF ✌️</p>
+          <p className="auth-panel-footer">Feito para a galera do IF gente boa 👍</p>
         </div>
 
-        {/* ── Painel direito (formulário) ────────────── */}
-        <div className="auth-panel-right">
-        {/* Logo (mobile only) */}
+        {/* OPÇÃO NUCLEAR: Forçando a rolagem apenas dentro do formulário e dando espaço no final */}
+        <div className="auth-panel-right" style={{ maxHeight: '90vh', overflowY: 'auto', paddingBottom: '80px', WebkitOverflowScrolling: 'touch' }}>
+        
         <div className="auth-logo-wrap auth-logo-mobile" aria-hidden="true">
           <div className="auth-logo-icon-wrap">
-            <img src="/icons/logo-header.png" alt="Anota AIF!" className="auth-logo-img-real" />
+            <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="auth-logo-img-real" />
           </div>
           <div>
             <h1 className="auth-app-name">Anota AIF!</h1>
@@ -247,12 +261,12 @@ export default function AuthScreen({ onAuth }) {
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="auth-tabs" role="tablist">
           <button
             className={`auth-tab${mode === 'login' ? ' active' : ''}`}
             role="tab" aria-selected={mode === 'login'}
             onClick={() => switchMode('login')} type="button"
+            style={{ flex: 1, whiteSpace: 'nowrap' }}
           >
             Entrar
           </button>
@@ -260,6 +274,7 @@ export default function AuthScreen({ onAuth }) {
             className={`auth-tab${mode === 'register' ? ' active' : ''}`}
             role="tab" aria-selected={mode === 'register'}
             onClick={() => switchMode('register')} type="button"
+            style={{ flex: 1, whiteSpace: 'nowrap' }}
           >
             Criar conta
           </button>
@@ -267,18 +282,16 @@ export default function AuthScreen({ onAuth }) {
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
 
-          {/* Nome */}
           <div className="auth-field">
             <label htmlFor="auth-name">Nome completo</label>
             <input
               id="auth-name" type="text"
-              placeholder="Ex: João Silva"
+              placeholder="Ex: Ed Carlos Xavier"
               value={name} onChange={e => setName(e.target.value)}
               autoComplete="name" autoFocus disabled={loading}
             />
           </div>
 
-          {/* Senha */}
           <div className="auth-field">
             <label htmlFor="auth-password">Senha</label>
             <input
@@ -290,7 +303,6 @@ export default function AuthScreen({ onAuth }) {
             />
           </div>
 
-          {/* ── Campos exclusivos do cadastro ────────── */}
           {mode === 'register' && (
             <>
               <div className="auth-field">
@@ -313,7 +325,7 @@ export default function AuthScreen({ onAuth }) {
                   value={contactEmail} onChange={e => setContactEmail(e.target.value)}
                   autoComplete="email" disabled={loading}
                 />
-                <span className="auth-hint">Usado para notificações de tarefas</span>
+                <span className="auth-hint">Usado para cadastrar(futuramente notificações de tarefas)</span>
               </div>
 
               <div className="auth-row-2">
@@ -327,6 +339,7 @@ export default function AuthScreen({ onAuth }) {
                   >
                     <option value="">Selecione…</option>
                     {CAMPUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                    <option disabled>— Outros campus: talvez mais pra frente :)</option>
                   </select>
                 </div>
 
@@ -368,9 +381,15 @@ export default function AuthScreen({ onAuth }) {
                     maxLength={20}
                     autoComplete="off" disabled={loading}
                   />
-                  <span className="auth-hint">
-                    {classCode ? 'Código da turma existente' : 'Sem código = nova sala gerada automaticamente'}
-                  </span>
+                  {joiningRoom ? (
+                    <span className="auth-hint" style={{ color: '#00843D', fontWeight: 600 }}>
+                      ✓ Sala encontrada: {joiningRoom.ano_turma} · {joiningRoom.curso}
+                    </span>
+                  ) : classCode.trim() ? (
+                    <span className="auth-hint" style={{ color: '#e67e22' }}>Verificando código…</span>
+                  ) : (
+                    <span className="auth-hint">Se sua sala ainda não tem ninguém, a chave será gerada quando você se cadastrar</span>
+                  )}
                 </div>
               </div>
             </>
@@ -388,7 +407,6 @@ export default function AuthScreen({ onAuth }) {
                 type="button"
                 className="auth-submit"
                 onClick={() => {
-                  // faz login de verdade pra entrar no app
                   const email = nameToEmail(name.trim())
                   supabase.auth.signInWithPassword({ email, password }).then(({ data }) => {
                     if (data?.user) {
@@ -402,15 +420,20 @@ export default function AuthScreen({ onAuth }) {
               </button>
             </div>
           ) : (
-            <button type="submit" className="auth-submit" disabled={loading}>
+            <button 
+              type="submit" 
+              className="auth-submit" 
+              disabled={loading}
+              style={{ whiteSpace: 'nowrap', minHeight: '48px', marginTop: '15px' }}
+            >
               {loading ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
             </button>
           )}
         </form>
-        </div>{/* fim auth-panel-right */}
+        </div>
       </div>
 
-      <p className="auth-footer auth-footer-mobile">Feito para a galera do IF ✌️</p>
+      <p className="auth-footer auth-footer-mobile" style={{ paddingBottom: '30px' }}>Feito para a galera do IF gente boa 👍</p>
     </div>
   )
 }

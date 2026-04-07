@@ -74,7 +74,8 @@ function getUrgency(task) {
   today.setHours(0, 0, 0, 0)
   const due = new Date(task.dueDate + 'T00:00:00')
   const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24))
-  if (diffDays < 0) return 'overdue'
+  if (diffDays < -3) return 'expired'
+  if (diffDays < 0)  return 'overdue'
   if (diffDays <= 3) return 'soon'
   return 'ok'
 }
@@ -84,6 +85,7 @@ function formatDueDate(dateStr, urgency) {
   today.setHours(0, 0, 0, 0)
   const due = new Date(dateStr + 'T00:00:00')
   const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24))
+  if (urgency === 'expired') return 'Expirada'
   if (urgency === 'overdue') {
     const days = Math.abs(diffDays)
     return days === 1 ? 'Atrasada (ontem)' : `Atrasada (${days} dias)`
@@ -95,7 +97,7 @@ function formatDueDate(dateStr, urgency) {
 }
 
 // ── TaskCard ──────────────────────────────────────────
-function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelete }) {
+function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelete, canDelete }) {
   const cardRef    = useRef(null)
   const startX     = useRef(0)
   const deltaX     = useRef(0)      // px arrastados (para distinguir tap de swipe)
@@ -245,17 +247,13 @@ export default function AnotaAIF() {
 
   // Push notification subscription
   const [pushEnabled, setPushEnabled] = useState(false)
-  const VAPID_PUBLIC = 'BG8Ia1k66BdRrC_v2ZxmVkDY47LLZwzhRfdv0aFSX9uRQMfwhk6m_roe9OAtnq3nUc0NOrfLK3QRv5LX_B6FtLU'
+  const VAPID_PUBLIC = 'BP68pPed7fc05A0rpVHStsZdJkxXdbVg-_dmjz4DDq6RB1PxLef6slZQ4ix_A_MGHYMB-LEUEq1IVciYn6ixjeg'
 
   // ── PWA: registra SW + detecta plataforma + captura prompt ──
   useEffect(() => {
-    // Registra service worker e verifica push
+    // Registra service worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then(reg => {
-        reg.pushManager.getSubscription().then(sub => {
-          if (sub) setPushEnabled(true)
-        })
-      }).catch(() => {})
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
 
     // Detecta iOS
@@ -331,14 +329,36 @@ export default function AnotaAIF() {
         .single()
       if (error) throw error
       setProfile(data)
+      syncPushSubscription(user.id)
+
+      // Verifica ?room=CODE para admin entrar em outra sala
+      if (data?.is_admin && typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const room = params.get('room')
+        if (room) {
+          viewingRoomRef.current = room.toUpperCase()
+          setViewingRoom(room.toUpperCase())
+        }
+      }
     } catch {
-      // perfil não encontrado — usuário legado, usa class_code padrão
       setProfile({ class_code: 'INFO2026' })
     }
     loadData()
   }
 
   async function loadData() {
+    // Admin visualizando outra sala — busca via API (bypassa RLS)
+    if (viewingRoomRef.current) {
+      try {
+        const res = await fetch(`/api/admin/room-tasks?code=${viewingRoomRef.current}`)
+        const { tasks: data } = await res.json()
+        setTasks((data ?? []).map(fromDb))
+      } catch {
+        setTasks([])
+      }
+      return
+    }
+
     try {
       const [tasksRes, completionsRes] = await Promise.all([
         supabase.from('tasks').select('*').order('created_at', { ascending: true }),
@@ -432,6 +452,8 @@ export default function AnotaAIF() {
   async function handleDeleteTask(id) {
     const task = tasks.find(t => t.id === id)
     if (!task) return
+    const tipo = task.type === 'prova' ? 'prova' : 'atividade'
+    if (!confirm(`Tem certeza que quer apagar essa ${tipo}?\n"${task.subject}"`)) return
 
     if (pendingDeleteRef.current) {
       clearTimeout(pendingDeleteRef.current.timerId)
@@ -475,10 +497,7 @@ export default function AnotaAIF() {
       setSubjectError('Digite o nome da matéria (mín. 2 caracteres).')
       valid = false
     }
-    if (desc.trim().length < 5) {
-      setDescError('Descreva melhor o que precisa ser feito (mín. 5 caracteres).')
-      valid = false
-    }
+
     if (!dueDate) {
       setDateError('Selecione a data de entrega.')
       valid = false
@@ -512,31 +531,53 @@ export default function AnotaAIF() {
       setTimeout(() => showSnackbar(`"${name}" atualizada! ✓`), 400)
     } else {
       const classCode = profile?.class_code ?? 'INFO2026'
-      const newTask = {
-        id: generateId(),
-        type: taskType,
-        subject: name,
-        description: descTrimmed,
-        dueDate,
-        done: false,
-        createdAt: Date.now(),
-      }
-      
-      // Atualiza a tela primeiro
-      setTasks(prev => [...prev, newTask])
-      
-      // 3. Adicionamos o 'await' e capturamos o erro na inserção
-      const { error } = await supabase.from('tasks')
-        .insert({ ...toDb(newTask, user.id), class_code: classCode })
-        
-      if (error) {
-        console.error("🔴 ERRO AO SALVAR NO SUPABASE:", error.message)
-        showSnackbar('Erro ao salvar! Olhe o console (F12).')
-        return
-      }
+      const canCreate = profile?.is_admin || profile?.is_moderator
 
-      closeModal()
-      setTimeout(() => showSnackbar(`"${name}" adicionada! ✓`), 400)
+      if (canCreate) {
+        const newTask = {
+          id: generateId(),
+          type: taskType,
+          subject: name,
+          description: descTrimmed,
+          dueDate,
+          done: false,
+          createdAt: Date.now(),
+        }
+        setTasks(prev => [...prev, newTask])
+        const { error } = await supabase.from('tasks')
+          .insert({ ...toDb(newTask, user.id), class_code: classCode })
+        if (error) {
+          console.error("🔴 ERRO AO SALVAR NO SUPABASE:", error.message)
+          showSnackbar('Erro ao salvar! Olhe o console (F12).')
+          return
+        }
+        closeModal()
+        setTimeout(() => showSnackbar(`"${name}" adicionada! ✓`), 400)
+      } else {
+        // Aluno comum → envia sugestão para o moderador aprovar
+        const { error } = await supabase.from('task_suggestions').insert({
+          class_code: classCode,
+          suggested_by: user.id,
+          suggested_by_name: profile?.full_name ?? user.user_metadata?.full_name ?? 'Aluno',
+          type: taskType,
+          subject: name,
+          description: descTrimmed,
+          due_date: dueDate || null,
+        })
+        if (error) {
+          console.error("🔴 ERRO AO SOLICITAR:", error.message)
+          showSnackbar('Erro ao solicitar! Olhe o console (F12).')
+          return
+        }
+        closeModal()
+        setTimeout(() => showSnackbar(`Solicitação de "${name}" enviada! ✓`), 400)
+        // Notifica moderador/admin
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'suggestion', class_code: classCode, subject: name, suggested_by_name: profile?.full_name }),
+        }).catch(() => {})
+      }
     }
   }
 
@@ -577,6 +618,60 @@ export default function AnotaAIF() {
   }
 
   // ── Push Notifications ────────────────────────────────
+
+  // Sincroniza subscription do browser com o DB — força re-subscrição se VAPID mudou
+  async function syncPushSubscription(userId) {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const existing = await reg.pushManager.getSubscription()
+      if (!existing) {
+        // Permissão já concedida mas sem subscription (PWA instalado ou VAPID mudou) → re-subscreve
+        if (Notification.permission === 'granted') {
+          try {
+            const newSub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+            })
+            const { endpoint, keys } = newSub.toJSON()
+            await supabase.from('push_subscriptions').upsert(
+              { user_id: userId, endpoint, p256dh: keys.p256dh, auth_key: keys.auth },
+              { onConflict: 'user_id,endpoint' }
+            )
+            setPushEnabled(true)
+          } catch (e) {
+            console.warn('syncPush auto-subscribe:', e)
+          }
+        }
+        return
+      }
+
+      // Verifica se está no DB
+      const { data } = await supabase.from('push_subscriptions')
+        .select('id').eq('user_id', userId).eq('endpoint', existing.endpoint).maybeSingle()
+
+      if (data) {
+        setPushEnabled(true)
+        return
+      }
+
+      // Não está no DB → desinscreveu com key velha, re-inscreve com nova
+      await existing.unsubscribe()
+      const newSub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+      })
+      const { endpoint, keys } = newSub.toJSON()
+      await supabase.from('push_subscriptions').upsert(
+        { user_id: userId, endpoint, p256dh: keys.p256dh, auth_key: keys.auth },
+        { onConflict: 'user_id,endpoint' }
+      )
+      setPushEnabled(true)
+    } catch (e) {
+      console.warn('syncPush:', e)
+    }
+  }
+
   async function handleEnablePush() {
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
       showSnackbar('Seu navegador não suporta notificações.')
@@ -614,8 +709,14 @@ export default function AnotaAIF() {
     return Uint8Array.from([...raw].map(c => c.charCodeAt(0)))
   }
 
-  // ── Admin: gerar código da turma ─────────────────────
-  const [copiedCode, setCopiedCode] = useState(false)
+  // ── Admin: gerar código da turma / convite ────────────
+  const [copiedCode, setCopiedCode]     = useState(false)
+  const [inviteCopied, setInviteCopied] = useState(false)
+  const [adminBarOpen, setAdminBarOpen] = useState(false)
+
+  // Admin: visualizar outra sala via ?room=CODE
+  const viewingRoomRef = useRef(null)
+  const [viewingRoom, setViewingRoom]   = useState(null)
 
   async function handleGenerateCode() {
     if (!profile?.is_admin) return
@@ -646,6 +747,29 @@ export default function AnotaAIF() {
     } catch {
       showSnackbar(profile.class_code)
     }
+  }
+
+  async function handleInvite() {
+    if (!profile?.class_code) return
+    const link = `${window.location.origin}/?join=${profile.class_code}`
+    try {
+      await navigator.clipboard.writeText(link)
+      setInviteCopied(true)
+      showSnackbar('Link copiado! Compartilhe somente com alunos da sua sala.')
+      setTimeout(() => setInviteCopied(false), 3000)
+    } catch {
+      showSnackbar(link)
+    }
+  }
+
+  function handleLeaveRoomView() {
+    viewingRoomRef.current = null
+    setViewingRoom(null)
+    // Remove ?room= da URL sem reload
+    const url = new URL(window.location.href)
+    url.searchParams.delete('room')
+    window.history.replaceState({}, '', url)
+    loadData()
   }
 
   // ── Snackbar ──────────────────────────────────────────
@@ -716,7 +840,7 @@ export default function AnotaAIF() {
         <div className="header-inner">
           <div className="header-brand">
             <div className="logo-mark">
-              <img src="/icons/logo-header.png" alt="Anota AIF!" className="logo-img" />
+              <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="logo-img" />
             </div>
             <div>
               <h1 className="app-title">Anota AIF!</h1>
@@ -800,59 +924,63 @@ export default function AnotaAIF() {
           ))}
         </nav>
 
-        {/* Admin: botão painel */}
-        {profile?.is_admin && (
-          <button className="btn-admin-panel" onClick={() => router.push('/admin')}>
+        {/* Admin/Mod: toggle compacto no mobile */}
+        {(profile?.is_admin || profile?.is_moderator) && (
+          <button className="btn-admin-toggle" onClick={() => setAdminBarOpen(o => !o)}>
             <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 17c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
-            Painel de Alunos
+            <span>{profile.is_admin ? 'Admin' : 'Mod'}</span>
+            <svg className={`toggle-chevron${adminBarOpen ? ' open' : ''}`} viewBox="0 0 20 20" fill="none">
+              <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
           </button>
         )}
 
-        {/* Admin: código da turma */}
-        {profile?.is_admin && (
-          <div className="admin-code-panel">
-            <span className="admin-code-label">Código da Turma</span>
-            <div className="admin-code-row">
-              <span className="admin-code-value">{profile.class_code ?? '—'}</span>
-              <button
-                className="admin-code-btn"
-                onClick={handleCopyCode}
-                title="Copiar código"
-                aria-label="Copiar código da turma"
-              >
-                {copiedCode ? '✓' : (
-                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                    <rect x="7" y="7" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                    <path d="M13 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5"/>
-                  </svg>
-                )}
-              </button>
-              {!profile.class_code && (
-                <button
-                  className="admin-code-btn admin-code-gen"
-                  onClick={handleGenerateCode}
-                  title="Gerar código"
-                  aria-label="Gerar código da turma"
-                >
-                  Gerar
-                </button>
-              )}
-            </div>
-            {profile.class_code && (
-              <button
-                className="admin-regen-btn"
-                onClick={() => {
-                  if (confirm('Gerar um novo código? O código anterior deixará de funcionar.')) {
-                    handleGenerateCode()
-                  }
-                }}
-              >
-                Gerar novo código
+        {/* Painel admin/mod — mobile: colapsa; desktop: sempre visível */}
+        {(profile?.is_admin || profile?.is_moderator) && (
+          <div className={`admin-bar-panel${adminBarOpen ? ' open' : ''}`}>
+            {profile.is_admin && (
+              <button className="btn-admin-panel" onClick={() => router.push('/admin')}>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M3 17c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Painel de Alunos
               </button>
             )}
+            {profile.is_moderator && !profile.is_admin && (
+              <button className="btn-admin-panel" onClick={() => router.push('/moderador')}>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M3 17c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Painel da Sala
+              </button>
+            )}
+            <div className="admin-code-panel">
+              <span className="admin-code-label">Código da Turma</span>
+              <div className="admin-code-row">
+                <span className="admin-code-value">{profile.class_code ?? '—'}</span>
+                <button className="admin-code-btn" onClick={handleCopyCode} title="Copiar código">
+                  {copiedCode ? '✓' : (
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <rect x="7" y="7" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+                      <path d="M13 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5"/>
+                    </svg>
+                  )}
+                </button>
+                {!profile.class_code && (
+                  <button className="admin-code-btn admin-code-gen" onClick={handleGenerateCode}>Gerar</button>
+                )}
+              </div>
+              {profile.class_code && profile.is_admin && (
+                <button className="admin-regen-btn" onClick={() => {
+                  if (confirm('Gerar um novo código? O código anterior deixará de funcionar.')) handleGenerateCode()
+                }}>Gerar novo código</button>
+              )}
+            </div>
           </div>
         )}
 
@@ -861,6 +989,19 @@ export default function AnotaAIF() {
           <span className="user-bar-name">
             {user.user_metadata?.full_name ?? 'Aluno'}
           </span>
+          {profile?.class_code && (
+            <button
+              className="user-bar-signout"
+              onClick={handleInvite}
+              title="Convidar para a sala"
+              style={{ background: inviteCopied ? '#00843D' : undefined }}
+            >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M13 10l4-4-4-4M17 6H7a4 4 0 000 8h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {inviteCopied ? 'Copiado!' : 'Convidar'}
+            </button>
+          )}
           <button className="user-bar-signout" onClick={handleSignOut} title="Sair">
             <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M13 3h4a1 1 0 011 1v12a1 1 0 01-1 1h-4M8 14l4-4-4-4M12 10H3"
@@ -871,8 +1012,20 @@ export default function AnotaAIF() {
         </div>
       </header>
 
+      {/* Banner: admin visualizando outra sala */}
+      {viewingRoom && (
+        <div className="notif-banner" style={{ background: '#1a56db' }}>
+          <div className="notif-banner-icon">👁</div>
+          <div className="notif-banner-text">
+            <strong>Modo visualização</strong>
+            <span>Sala {viewingRoom} — você está vendo as tarefas dessa sala</span>
+          </div>
+          <button className="notif-banner-btn" onClick={handleLeaveRoomView}>Voltar à minha sala</button>
+        </div>
+      )}
+
       {/* Banner: ativar notificações */}
-      {!pushEnabled && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+      {!pushEnabled && !viewingRoom && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
         <div className="notif-banner">
           <div className="notif-banner-icon">🔔</div>
           <div className="notif-banner-text">
@@ -910,7 +1063,7 @@ export default function AnotaAIF() {
       {/* FAB */}
       <button
         className={`fab${isModalOpen ? ' open' : ''}`}
-        aria-label="Adicionar nova tarefa"
+        aria-label={(profile?.is_admin || profile?.is_moderator) ? 'Adicionar nova tarefa' : 'Solicitar tarefa ao moderador'}
         onClick={isModalOpen ? closeModal : () => openModal()}
       >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -930,7 +1083,7 @@ export default function AnotaAIF() {
 
           <div className="modal-header">
             <h2 className="modal-title" id="modal-title">
-              {isEditing ? 'Editar Tarefa' : 'Nova Tarefa'}
+              {isEditing ? 'Editar Tarefa' : (profile?.is_admin || profile?.is_moderator) ? 'Nova Tarefa' : 'Solicitar Tarefa'}
             </h2>
             <button className="modal-close" aria-label="Fechar modal" onClick={closeModal}>
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
