@@ -1247,6 +1247,10 @@ body {
     max-width: 145px;
   }
 
+  /* Brand flexível, actions sempre visíveis */
+  .header-brand { flex: 1; min-width: 0; overflow: hidden; }
+  .header-actions { flex-shrink: 0; }
+
   /* Stat badge: só o número no mobile */
   .stat-badge { padding: 5px 8px; min-width: 34px; }
   .stat-label { display: none; }
