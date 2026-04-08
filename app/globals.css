@@ -1096,6 +1096,29 @@ body {
 
 .swipe-delete-bg svg { width: 22px; height: 22px; }
 
+/* Rodapé do card: material + dúvidas */
+.task-card-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.task-footer-btn {
+  font-size: 11px;
+  font-family: var(--font-body);
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(0,0,0,0.1);
+  background: rgba(255,255,255,0.6);
+  cursor: pointer;
+  color: var(--text-secondary);
+  text-decoration: none;
+  line-height: 1.5;
+  transition: background 0.15s;
+}
+.task-footer-btn:hover { background: rgba(0,0,0,0.06); }
+.task-footer-material { color: #00843D; border-color: #00843D33; }
+
 /* Botão de deletar (desktop) — aparece no hover */
 .card-delete-btn {
   position: absolute;

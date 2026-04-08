@@ -38,6 +38,7 @@ function toDb(task, userId = null) {
     description: task.description,
     due_date: task.dueDate,
     done: task.done,
+    material_url: task.materialUrl || null,
     created_at: new Date(task.createdAt).toISOString(),
     ...(userId ? { created_by: userId } : {}),
   }
@@ -51,6 +52,7 @@ function fromDb(row) {
     description: row.description,
     dueDate: row.due_date,
     done: row.done,
+    materialUrl: row.material_url || null,
     createdAt: new Date(row.created_at).getTime(),
   }
 }
@@ -97,7 +99,7 @@ function formatDueDate(dateStr, urgency) {
 }
 
 // ── TaskCard ──────────────────────────────────────────
-function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelete, canDelete }) {
+function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelete, canDelete, onDoubts }) {
   const cardRef    = useRef(null)
   const startX     = useRef(0)
   const deltaX     = useRef(0)      // px arrastados (para distinguir tap de swipe)
@@ -132,8 +134,9 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
   }
 
   function handleCardClick(e) {
-    if (deltaX.current > 8) return                        // foi swipe, não tap
-    if (e.target.closest('.task-checkbox-wrap')) return   // checkbox: não abre edição
+    if (deltaX.current > 8) return
+    if (e.target.closest('.task-checkbox-wrap')) return
+    if (e.target.closest('.task-card-footer')) return     // footer: não abre edição
     onEdit()
   }
 
@@ -175,6 +178,18 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
               </svg>
               {dueDateText}
             </span>
+            {(task.materialUrl || onDoubts) && (
+              <div className="task-card-footer" onClick={e => e.stopPropagation()}>
+                {task.materialUrl && (
+                  <a href={task.materialUrl} target="_blank" rel="noopener noreferrer" className="task-footer-btn task-footer-material">
+                    📎 Material
+                  </a>
+                )}
+                <button className="task-footer-btn task-footer-doubts" onClick={onDoubts}>
+                  💬 Dúvidas
+                </button>
+              </div>
+            )}
           </div>
           <div className="task-checkbox-wrap">
             <input
@@ -235,9 +250,20 @@ export default function AnotaAIF() {
   const [subject, setSubject]       = useState('')
   const [desc, setDesc]             = useState('')
   const [dueDate, setDueDate]       = useState('')
+  const [materialUrl, setMaterialUrl] = useState('')
   const [subjectError, setSubjectError] = useState('')
   const [descError, setDescError]       = useState('')
   const [dateError, setDateError]       = useState('')
+
+  // Ver colegas
+  const [showMembers, setShowMembers] = useState(false)
+  const [members, setMembers]         = useState([])
+
+  // Dúvidas
+  const [doubtsTask, setDoubtsTask]   = useState(null)
+  const [doubts, setDoubts]           = useState([])
+  const [newDoubt, setNewDoubt]       = useState('')
+  const [replyTexts, setReplyTexts]   = useState({})
   const [savedSubjects, setSavedSubjects] = useState([])
   const [suggestions, setSuggestions]     = useState([])
 
@@ -419,6 +445,7 @@ export default function AnotaAIF() {
       setSubject(task.subject)
       setDesc(task.description)
       setDueDate(task.dueDate)
+      setMaterialUrl(task.materialUrl ?? '')
     } else {
       setEditingTask(null)
     }
@@ -432,6 +459,7 @@ export default function AnotaAIF() {
     setSubject('')
     setDesc('')
     setDueDate('')
+    setMaterialUrl('')
     setSubjectError('')
     setDescError('')
     setDateError('')
@@ -511,15 +539,15 @@ export default function AnotaAIF() {
 
     if (editingTask) {
       // Atualiza a tela primeiro (otimista)
+      const mat = materialUrl.trim() || null
       setTasks(prev => prev.map(t =>
         t.id === editingTask.id
-          ? { ...t, type: taskType, subject: name, description: descTrimmed, dueDate }
+          ? { ...t, type: taskType, subject: name, description: descTrimmed, dueDate, materialUrl: mat }
           : t
       ))
-      
-      // 2. Adicionamos o 'await' e capturamos o erro na edição
+
       const { error } = await supabase.from('tasks')
-        .update({ type: taskType, subject: name, description: descTrimmed, due_date: dueDate })
+        .update({ type: taskType, subject: name, description: descTrimmed, due_date: dueDate, material_url: mat })
         .eq('id', editingTask.id)
         
       if (error) {
@@ -541,6 +569,7 @@ export default function AnotaAIF() {
           subject: name,
           description: descTrimmed,
           dueDate,
+          materialUrl: materialUrl.trim() || null,
           done: false,
           createdAt: Date.now(),
         }
@@ -763,6 +792,57 @@ export default function AnotaAIF() {
     }
   }
 
+  async function loadMembers() {
+    if (!profile?.class_code) return
+    const { data } = await supabase.from('profiles')
+      .select('full_name, ano_turma, curso')
+      .eq('class_code', profile.class_code)
+      .order('full_name')
+    setMembers(data ?? [])
+    setShowMembers(true)
+  }
+
+  async function openDoubts(task) {
+    setDoubtsTask(task)
+    const { data } = await supabase.from('doubts')
+      .select('*, doubt_replies(*)')
+      .eq('task_id', task.id)
+      .order('created_at')
+    setDoubts(data ?? [])
+  }
+
+  async function handleSubmitDoubt() {
+    if (!newDoubt.trim() || !doubtsTask) return
+    const id = 'doubt_' + Date.now() + '_' + Math.random().toString(36).slice(2,6)
+    const row = {
+      id, task_id: doubtsTask.id,
+      class_code: profile.class_code,
+      user_id: user.id,
+      user_name: profile.full_name ?? 'Aluno',
+      question: newDoubt.trim(),
+    }
+    await supabase.from('doubts').insert(row)
+    setDoubts(prev => [...prev, { ...row, doubt_replies: [] }])
+    setNewDoubt('')
+  }
+
+  async function handleSubmitReply(doubtId) {
+    const text = replyTexts[doubtId]?.trim()
+    if (!text) return
+    const id = 'reply_' + Date.now() + '_' + Math.random().toString(36).slice(2,6)
+    const row = {
+      id, doubt_id: doubtId,
+      user_id: user.id,
+      user_name: profile.full_name ?? 'Aluno',
+      reply: text,
+    }
+    await supabase.from('doubt_replies').insert(row)
+    setDoubts(prev => prev.map(d =>
+      d.id === doubtId ? { ...d, doubt_replies: [...(d.doubt_replies ?? []), row] } : d
+    ))
+    setReplyTexts(prev => ({ ...prev, [doubtId]: '' }))
+  }
+
   function handleLeaveRoomView() {
     viewingRoomRef.current = null
     setViewingRoom(null)
@@ -827,6 +907,7 @@ export default function AnotaAIF() {
         onEdit={() => openModal(task)}
         canDelete={!!(profile?.is_admin || profile?.is_moderator)}
         onDelete={() => handleDeleteTask(task.id)}
+        onDoubts={() => openDoubts(task)}
       />
     )
   })
@@ -846,10 +927,11 @@ export default function AnotaAIF() {
             </div>
             <div>
               <h1 className="app-title">Anota AIF!</h1>
-              <p className="app-subtitle">
+              <p className="app-subtitle" onClick={loadMembers} style={{ cursor: 'pointer' }} title="Ver colegas da turma">
                 {profile
                   ? `${profile.ano_turma ?? ''} · ${profile.curso ?? ''} · ${campusShort(profile.campus)}`
                   : 'IFSP'}
+                {profile && <span style={{ opacity: 0.7, fontSize: 11 }}> 👥</span>}
               </p>
             </div>
           </div>
@@ -1227,6 +1309,19 @@ export default function AnotaAIF() {
               </span>
             </div>
 
+            {/* Material (opcional) */}
+            <div className="form-group">
+              <label className="form-label" htmlFor="material-input">Link de material <span style={{ opacity: 0.5, fontWeight: 400 }}>(opcional)</span></label>
+              <input
+                id="material-input"
+                type="url"
+                className="form-input"
+                placeholder="Ex: drive.google.com/… ou classroom.google.com/…"
+                value={materialUrl}
+                onChange={e => setMaterialUrl(e.target.value)}
+              />
+            </div>
+
             {/* Ações */}
             <div className="form-actions">
               <button type="button" className="btn-cancel" onClick={closeModal}>
@@ -1293,6 +1388,103 @@ export default function AnotaAIF() {
               </li>
             </ol>
             <p className="ios-modal-note">⚠️ Funciona apenas no Safari. Chrome/Firefox no iOS não suportam.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: colegas da turma */}
+      {showMembers && (
+        <div className="modal-overlay open" role="dialog" aria-modal="true" onClick={e => { if (e.target === e.currentTarget) setShowMembers(false) }}>
+          <div className="modal-sheet">
+            <div className="modal-handle" aria-hidden="true"/>
+            <div className="modal-header">
+              <h2 className="modal-title">👥 Colegas da turma</h2>
+              <button className="modal-close" onClick={() => setShowMembers(false)} aria-label="Fechar">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+              </button>
+            </div>
+            <ul style={{ listStyle:'none', padding:'0 20px 24px', display:'flex', flexDirection:'column', gap:8 }}>
+              {members.map((m, i) => (
+                <li key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid #f0f0f0' }}>
+                  <div style={{ width:36, height:36, borderRadius:'50%', background:'#E8F5E9', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, color:'#00843D', fontSize:15, flexShrink:0 }}>
+                    {m.full_name?.[0]?.toUpperCase() ?? '?'}
+                  </div>
+                  <div>
+                    <p style={{ fontSize:14, fontWeight:600, margin:0 }}>{m.full_name}</p>
+                    <p style={{ fontSize:12, opacity:0.6, margin:0 }}>{m.ano_turma} · {m.curso}</p>
+                  </div>
+                </li>
+              ))}
+              {members.length === 0 && <li style={{ fontSize:13, opacity:0.5, padding:'12px 0' }}>Nenhum colega encontrado.</li>}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: dúvidas de uma tarefa */}
+      {doubtsTask && (
+        <div className="modal-overlay open" role="dialog" aria-modal="true" onClick={e => { if (e.target === e.currentTarget) setDoubtsTask(null) }}>
+          <div className="modal-sheet" style={{ maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
+            <div className="modal-handle" aria-hidden="true"/>
+            <div className="modal-header">
+              <h2 className="modal-title">💬 {doubtsTask.subject}</h2>
+              <button className="modal-close" onClick={() => setDoubtsTask(null)} aria-label="Fechar">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+              </button>
+            </div>
+            <div style={{ overflowY:'auto', flex:1, padding:'0 20px 24px' }}>
+              {/* Enviar dúvida */}
+              <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+                <textarea
+                  className="form-textarea"
+                  rows={2}
+                  placeholder="Qual é sua dúvida?"
+                  value={newDoubt}
+                  onChange={e => setNewDoubt(e.target.value)}
+                  style={{ flex:1, fontSize:13 }}
+                />
+                <button
+                  className="btn-submit"
+                  style={{ alignSelf:'flex-end', padding:'8px 14px', fontSize:13 }}
+                  onClick={handleSubmitDoubt}
+                  disabled={!newDoubt.trim()}
+                >
+                  Enviar
+                </button>
+              </div>
+
+              {/* Lista de dúvidas */}
+              {doubts.length === 0 && <p style={{ fontSize:13, opacity:0.5, textAlign:'center', padding:'12px 0' }}>Nenhuma dúvida ainda. Seja o primeiro!</p>}
+              {doubts.map(d => (
+                <div key={d.id} style={{ marginBottom:14, background:'#f8f9f8', borderRadius:12, padding:12 }}>
+                  <p style={{ margin:'0 0 4px', fontSize:13 }}><strong>{d.user_name}</strong>: {d.question}</p>
+                  <p style={{ margin:'0 0 8px', fontSize:11, opacity:0.5 }}>{new Date(d.created_at).toLocaleDateString('pt-BR')}</p>
+                  {(d.doubt_replies ?? []).map(r => (
+                    <div key={r.id} style={{ marginLeft:12, padding:'6px 10px', background:'#fff', borderRadius:8, marginBottom:4, fontSize:12 }}>
+                      <strong>{r.user_name}</strong>: {r.reply}
+                    </div>
+                  ))}
+                  <div style={{ display:'flex', gap:6, marginTop:8 }}>
+                    <input
+                      className="form-input"
+                      style={{ flex:1, fontSize:12, padding:'6px 10px' }}
+                      placeholder="Responder…"
+                      value={replyTexts[d.id] ?? ''}
+                      onChange={e => setReplyTexts(prev => ({ ...prev, [d.id]: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSubmitReply(d.id) }}
+                    />
+                    <button
+                      className="btn-submit"
+                      style={{ padding:'6px 12px', fontSize:12 }}
+                      onClick={() => handleSubmitReply(d.id)}
+                      disabled={!replyTexts[d.id]?.trim()}
+                    >
+                      ↩
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
