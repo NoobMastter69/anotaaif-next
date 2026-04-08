@@ -5,15 +5,30 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 
 const BLOCKED = [
+  // Palavrões PT-BR
   'porra','caralho','puta','viado','buceta','cu','merda','foda','fodase',
-  'cuzão','arrombado','arrombada','otário','otaria','vagabundo','vagabunda',
-  'piranha','cacete','desgraça','desgraçado','filhadaputa','fdp','vsf',
-  'vtnc','tnc','pnc','corno','corna','babaca','idiota','imbecil','retardado',
-  'fuck','shit','ass','bitch','nigga','faggot','dick','pussy','cunt',
+  'cuzão','cuzao','arrombado','arrombada','otário','otario','otaria',
+  'vagabundo','vagabunda','piranha','cacete','desgraça','desgracado',
+  'filhadaputa','fdp','vsf','vtnc','tnc','pnc','corno','corna',
+  'babaca','idiota','imbecil','retardado','retardada','rola','rolinha',
+  'xereca','xoxota','punheta','tesão','tesao','safado','safada',
+  // Palavrões EN
+  'fuck','shit','bitch','nigga','nigger','faggot','dick','pussy','cunt','asshole','bastard',
+  // Figuras históricas sensíveis / hate speech
+  'hitler','adolf','himmler','goebbels','goering','mengele','heydrich','eichmann',
+  'mussolini','stalin','osama','bin laden','binladen','pol pot','idi amin',
+  'saddam','hussein','gaddafi','milosevic',
+  // Grupos de ódio / termos ofensivos
+  'nazista','nazi','nazismo','fascista','kkk','ku klux',
 ].map(w => w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''))
+
+const BLOCKED_PHRASES = [
+  'bin laden','ku klux','adolf hitler','pol pot','idi amin',
+].map(p => p.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''))
 
 function hasProfanity(str) {
   const n = str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+  if (BLOCKED_PHRASES.some(p => n.includes(p))) return true
   return BLOCKED.some(w => new RegExp(`\\b${w}\\b`).test(n))
 }
 

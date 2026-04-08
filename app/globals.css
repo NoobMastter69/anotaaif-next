@@ -1099,6 +1099,7 @@ body {
 /* ── Página de Perfil ─────────────────────────────────────────── */
 .perfil-page {
   min-height: 100dvh;
+  width: 100%;
   background: #F4F6F4;
   display: flex;
   flex-direction: column;
@@ -1142,6 +1143,44 @@ body {
   max-width: 480px;
   width: 100%;
   margin: 0 auto;
+}
+@media (min-width: 768px) {
+  /* Faz a página de perfil cobrir toda a largura do #app (grid 268px + 1fr) */
+  .perfil-page {
+    grid-column: 1 / -1;
+    border-radius: var(--r-xl);
+    overflow: hidden;
+  }
+  .perfil-header {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+  .perfil-main {
+    max-width: 900px;
+    padding: 48px 40px 60px;
+    gap: 0;
+    /* dois cards lado a lado abaixo do avatar */
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 24px;
+    row-gap: 24px;
+    align-items: stretch;
+  }
+  .perfil-avatar {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: 100px;
+    height: 100px;
+    font-size: 44px;
+  }
+  .perfil-card {
+    padding: 24px 28px;
+    border-radius: 16px;
+  }
+  .perfil-card-title { font-size: 12px; }
+  .perfil-input { font-size: 16px; padding: 11px 14px; }
+  .perfil-save-btn { font-size: 16px; padding: 13px; margin-top: 14px; }
+  .perfil-info-value { font-size: 15px; }
 }
 .perfil-avatar {
   width: 72px;
