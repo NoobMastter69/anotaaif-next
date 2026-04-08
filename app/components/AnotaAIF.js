@@ -361,7 +361,8 @@ export default function AnotaAIF() {
       if (data?.is_admin && typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search)
         const room = params.get('room')
-        if (room) {
+        // Só ativa viewingRoom se for uma sala DIFERENTE da própria
+        if (room && room.toUpperCase() !== data.class_code) {
           viewingRoomRef.current = room.toUpperCase()
           setViewingRoom(room.toUpperCase())
         }
@@ -927,12 +928,16 @@ export default function AnotaAIF() {
             </div>
             <div>
               <h1 className="app-title">Anota AIF!</h1>
-              <p className="app-subtitle" onClick={loadMembers} style={{ cursor: 'pointer' }} title="Ver colegas da turma">
+              <p className="app-subtitle">
                 {profile
                   ? `${profile.ano_turma ?? ''} · ${profile.curso ?? ''} · ${campusShort(profile.campus)}`
                   : 'IFSP'}
-                {profile && <span style={{ opacity: 0.7, fontSize: 11 }}> 👥</span>}
               </p>
+              {profile?.class_code && (
+                <button className="btn-turma" onClick={loadMembers} title="Ver colegas">
+                  👥 Turma
+                </button>
+              )}
             </div>
           </div>
 
