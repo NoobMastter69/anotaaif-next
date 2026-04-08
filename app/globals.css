@@ -1247,13 +1247,10 @@ body {
     max-width: 145px;
   }
 
-  /* Stat badge menor — não toma espaço do título */
-  .stat-badge {
-    padding: 5px 8px;
-    min-width: 52px;
-  }
-  .stat-number { font-size: 16px; }
-  .stat-label  { font-size: 8px; letter-spacing: 0; }
+  /* Stat badge: só o número no mobile */
+  .stat-badge { padding: 5px 8px; min-width: 34px; }
+  .stat-label { display: none; }
+  .stat-number { font-size: 15px; }
 
   /* Botão turma menor */
   .btn-turma { padding: 3px 9px; font-size: 11px; margin-top: 4px; }
