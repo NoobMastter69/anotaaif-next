@@ -887,7 +887,7 @@ body {
     min-height: calc(100dvh - 64px);
     /* Pinta a coluna da sidebar de verde mesmo quando o conteúdo direito
        é mais alto que a sidebar sticky */
-    background: linear-gradient(90deg, var(--green-dark) 268px, var(--bg) 268px);
+    background: linear-gradient(90deg, var(--green-primary) 268px, var(--bg) 268px);
     /* Sem overflow:clip — evita bug do Chromium que contém position:fixed
        dentro do elemento, quebrando snackbar e modal-overlay.
        O border-radius é aplicado individualmente nos filhos abaixo. */

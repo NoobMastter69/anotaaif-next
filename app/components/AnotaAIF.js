@@ -120,7 +120,7 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
     if (!card) return
     card.style.transition = ''                  // restaura transição CSS
 
-    if (deltaX.current > 110) {
+    if (deltaX.current > 110 && canDelete) {
       // Threshold atingido → desliza para fora e deleta
       card.style.transform = 'translateX(-110%)'
       card.style.opacity   = '0'
@@ -189,7 +189,7 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
       </div>
 
       {/* Botão de deletar (desktop — aparece no hover) */}
-      <button
+      {canDelete && <button
         className="card-delete-btn"
         aria-label={`Deletar '${task.subject}'`}
         onClick={(e) => { e.stopPropagation(); onDelete() }}
@@ -199,7 +199,7 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
                 stroke="currentColor" strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
-      </button>
+      </button>}
     </div>
   )
 }
@@ -450,6 +450,7 @@ export default function AnotaAIF() {
   }
 
   async function handleDeleteTask(id) {
+    if (!profile?.is_admin && !profile?.is_moderator) return
     const task = tasks.find(t => t.id === id)
     if (!task) return
     const tipo = task.type === 'prova' ? 'prova' : 'atividade'
@@ -824,6 +825,7 @@ export default function AnotaAIF() {
         delay={delay}
         onToggle={() => handleToggleDone(task.id)}
         onEdit={() => openModal(task)}
+        canDelete={!!(profile?.is_admin || profile?.is_moderator)}
         onDelete={() => handleDeleteTask(task.id)}
       />
     )
