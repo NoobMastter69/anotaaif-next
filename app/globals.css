@@ -92,7 +92,7 @@ body {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='1' cy='1' r='1' fill='rgba(255,255,255,0.05)'/%3E%3C/svg%3E"),
     linear-gradient(155deg, var(--green-dark) 0%, var(--green-primary) 60%, #009447 100%);
-  padding: 52px 20px 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 0;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -1231,14 +1231,44 @@ body {
   border-color: rgba(255,255,255,0.4);
 }
 
+/* ─── Mobile: header compacto ───────────────────────── */
+@media (max-width: 767px) {
+  .header-inner { margin-bottom: 10px; }
+
+  .app-title {
+    font-size: 17px;
+    white-space: nowrap;
+  }
+  .app-subtitle {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 145px;
+  }
+
+  /* Stat badge menor — não toma espaço do título */
+  .stat-badge {
+    padding: 5px 8px;
+    min-width: 52px;
+  }
+  .stat-number { font-size: 16px; }
+  .stat-label  { font-size: 8px; letter-spacing: 0; }
+
+  /* Botão turma menor */
+  .btn-turma { padding: 3px 9px; font-size: 11px; margin-top: 4px; }
+}
+
 /* Mobile: user-bar fica na parte de baixo do header como strip compacto */
 @media (max-width: 767px) {
   .user-bar {
     border-top: 1px solid rgba(255,255,255,0.12);
-    padding: 8px 20px;
+    padding: 8px 16px;
     margin-top: 0;
   }
-  .user-bar-name { max-width: 180px; }
+  .user-bar-name { max-width: 150px; font-size: 12px; }
+  .user-bar-signout { padding: 5px 9px; font-size: 11px; }
+  .user-bar-signout svg { width: 12px; height: 12px; }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1977,8 +2007,11 @@ body {
 @media (max-width: 767px) {
   .btn-install span,
   .btn-calendar span { display: none; }
-  .btn-install { padding: 8px; border-radius: 50%; }
-  .btn-calendar { padding: 8px; border-radius: 50%; }
+  .btn-install { padding: 7px; border-radius: 50%; }
+  .btn-install svg { width: 16px; height: 16px; }
+  .btn-calendar { padding: 7px; border-radius: 50%; }
+  .btn-calendar svg { width: 16px; height: 16px; }
+  .header-actions { gap: 6px; }
 }
 
 .btn-calendar {
