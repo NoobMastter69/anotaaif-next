@@ -20,6 +20,7 @@ const BLOCKED = [
   'hitler','adolf','himmler','goebbels','goering','mengele','heydrich','eichmann',
   'mussolini','stalin','osama','bin laden','binladen','pol pot','idi amin',
   'saddam','hussein','gaddafi','milosevic',
+  'epstein','jeffrey epstein','pdiddy','p diddy','diddy','sean combs',
   // Grupos de ódio / termos ofensivos
   'nazista','nazi','nazismo','fascista','kkk','ku klux',
 ].map(w => w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''))
@@ -33,6 +34,13 @@ function hasProfanity(str) {
   const normalized = str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
   if (BLOCKED_PHRASES.some(p => normalized.includes(p))) return true
   return BLOCKED.some(w => new RegExp(`\\b${w}\\b`).test(normalized))
+}
+
+// ── Audit log helper ──────────────────────────────────────
+async function logAudit(userId, userName, action, details = {}, classCode = null) {
+  try {
+    await supabase.from('audit_logs').insert({ user_id: userId, user_name: userName, action, details, class_code: classCode })
+  } catch (_) {}
 }
 
 // Captura beforeinstallprompt ANTES do React montar (evita perder o evento)
@@ -84,6 +92,8 @@ function fromDb(row) {
     done: row.done,
     materialUrl: row.material_url || null,
     createdAt: new Date(row.created_at).getTime(),
+    createdBy: row.created_by || null,
+    subgroupId: row.subgroup_id || null,
   }
 }
 
@@ -106,19 +116,17 @@ function getUrgency(task) {
   today.setHours(0, 0, 0, 0)
   const due = new Date(task.dueDate + 'T00:00:00')
   const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24))
-  if (diffDays < -3) return 'expired'
-  if (diffDays < 0)  return 'overdue'
-  if (diffDays <= 3) return 'soon'
+  if (diffDays <= 1) return 'overdue'  // atrasado, hoje ou amanhã → vermelho
+  if (diffDays <= 3) return 'soon'     // 2-3 dias → amarelo
   return 'ok'
 }
 
-function formatDueDate(dateStr, urgency) {
+function formatDueDate(dateStr) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const due = new Date(dateStr + 'T00:00:00')
   const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24))
-  if (urgency === 'expired') return 'Expirada'
-  if (urgency === 'overdue') {
+  if (diffDays < 0) {
     const days = Math.abs(diffDays)
     return days === 1 ? 'Atrasada (ontem)' : `Atrasada (${days} dias)`
   }
@@ -285,6 +293,22 @@ export default function AnotaAIF() {
   const [descError, setDescError]       = useState('')
   const [dateError, setDateError]       = useState('')
 
+  // Feedback
+  const [feedbackOpen, setFeedbackOpen]   = useState(false)
+  const [feedbackText, setFeedbackText]   = useState('')
+  const [feedbackSent, setFeedbackSent]   = useState(false)
+  const [feedbackSending, setFeedbackSending] = useState(false)
+
+  // Subgrupos + seletor de contexto
+  const [mySubgroups, setMySubgroups]         = useState([])
+  const [activeSubgroup, setActiveSubgroup]   = useState(null) // { id, name, invite_code, role, class_code }
+  const [viewMode, setViewMode]               = useState(null) // null=seletor | 'class' | 'subgroup'
+  const [sgTab, setSgTab]                     = useState('create') // 'create' | 'join'
+  const [sgName, setSgName]                   = useState('')
+  const [sgJoinCode, setSgJoinCode]           = useState('')
+  const [sgError, setSgError]                 = useState('')
+  const [sgLoading, setSgLoading]             = useState(false)
+
   // Ver colegas
   const [showMembers, setShowMembers] = useState(false)
   const [members, setMembers]         = useState([])
@@ -368,6 +392,21 @@ export default function AnotaAIF() {
   useEffect(() => {
     if (!user) return
     loadProfileThenData()
+    loadMySubgroups()
+
+    // Preenche código de subgrupo automaticamente se vier da URL (?sgcode=XXXX)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const sgcode = params.get('sgcode')
+      if (sgcode) {
+        setSgJoinCode(sgcode.toUpperCase())
+        setSgTab('join')
+        // Limpa o param da URL sem reload
+        const url = new URL(window.location.href)
+        url.searchParams.delete('sgcode')
+        window.history.replaceState({}, '', url)
+      }
+    }
 
     // Matérias salvas (preferência local)
     try {
@@ -375,6 +414,13 @@ export default function AnotaAIF() {
       if (rawSubjects) setSavedSubjects(JSON.parse(rawSubjects))
     } catch {}
   }, [user])
+
+  // Carrega tasks quando o viewMode mudar (classe ou subgrupo escolhido)
+  useEffect(() => {
+    if (!user || !viewMode) return
+    if (viewMode === 'class') loadData(null)
+    else if (viewMode === 'subgroup' && activeSubgroup) loadData(activeSubgroup.id)
+  }, [viewMode, activeSubgroup?.id])
 
   async function loadProfileThenData() {
     try {
@@ -400,10 +446,19 @@ export default function AnotaAIF() {
     } catch {
       setProfile({ class_code: 'INFO2026' })
     }
-    loadData()
+    // Não carrega tasks automaticamente — seletor de contexto cuida disso
   }
 
-  async function loadData() {
+  async function loadMySubgroups() {
+    if (!user) return
+    const { data } = await supabase
+      .from('subgroup_members')
+      .select('role, subgroup:subgroups(id, name, invite_code, class_code, created_by)')
+      .eq('user_id', user.id)
+    setMySubgroups((data ?? []).map(r => ({ ...r.subgroup, role: r.role })))
+  }
+
+  async function loadData(subgroupId = null) {
     // Admin visualizando outra sala — busca via API (bypassa RLS)
     if (viewingRoomRef.current) {
       try {
@@ -417,8 +472,12 @@ export default function AnotaAIF() {
     }
 
     try {
+      const taskQuery = subgroupId
+        ? supabase.from('tasks').select('*').eq('subgroup_id', subgroupId).order('created_at', { ascending: true })
+        : supabase.from('tasks').select('*').is('subgroup_id', null).order('created_at', { ascending: true })
+
       const [tasksRes, completionsRes] = await Promise.all([
-        supabase.from('tasks').select('*').order('created_at', { ascending: true }),
+        taskQuery,
         // completions são sempre do próprio usuário (RLS já garante)
         supabase.from('completions').select('task_id').eq('user_id', user.id),
       ])
@@ -509,9 +568,14 @@ export default function AnotaAIF() {
   }
 
   async function handleDeleteTask(id) {
-    if (!profile?.is_admin && !profile?.is_moderator) return
     const task = tasks.find(t => t.id === id)
     if (!task) return
+    // Em subgrupo: criador ou dono do subgrupo pode deletar. Na sala: apenas admin/mod.
+    const inSubgroup = !!task.subgroupId
+    const isOwner = inSubgroup && (task.createdBy === user?.id || activeSubgroup?.role === 'owner')
+    if (!inSubgroup && !profile?.is_admin && !profile?.is_moderator) return
+    if (inSubgroup && !isOwner && !profile?.is_admin) return
+
     const tipo = task.type === 'prova' ? 'prova' : 'atividade'
     if (!confirm(`Tem certeza que quer apagar essa ${tipo}?\n"${task.subject}"`)) return
 
@@ -522,6 +586,7 @@ export default function AnotaAIF() {
 
     setTasks(prev => prev.filter(t => t.id !== id))
     await supabase.from('tasks').delete().eq('id', id)
+    logAudit(user.id, profile?.full_name, 'task_deleted', { subject: task.subject, type: task.type }, profile?.class_code)
 
     const timerId = setTimeout(() => {
       pendingDeleteRef.current = null
@@ -591,7 +656,7 @@ export default function AnotaAIF() {
       setTimeout(() => showSnackbar(`"${name}" atualizada! ✓`), 400)
     } else {
       const classCode = profile?.class_code ?? 'INFO2026'
-      const canCreate = profile?.is_admin || profile?.is_moderator
+      const canCreate = profile?.is_admin || profile?.is_moderator || !!activeSubgroup
 
       if (canCreate) {
         const newTask = {
@@ -603,15 +668,19 @@ export default function AnotaAIF() {
           materialUrl: materialUrl.trim() || null,
           done: false,
           createdAt: Date.now(),
+          subgroupId: activeSubgroup?.id ?? null,
         }
         setTasks(prev => [...prev, newTask])
-        const { error } = await supabase.from('tasks')
-          .insert({ ...toDb(newTask, user.id), class_code: classCode })
+        const insertData = { ...toDb(newTask, user.id), class_code: classCode }
+        if (activeSubgroup) insertData.subgroup_id = activeSubgroup.id
+        const { error } = await supabase.from('tasks').insert(insertData)
         if (error) {
           console.error("🔴 ERRO AO SALVAR NO SUPABASE:", error.message)
           showSnackbar('Erro ao salvar! Olhe o console (F12).')
           return
         }
+        logAudit(user.id, profile?.full_name, activeSubgroup ? 'subgroup_task_created' : 'task_created',
+          { subject: name, type: taskType, subgroup: activeSubgroup?.name }, classCode)
         closeModal()
         setTimeout(() => showSnackbar(`"${name}" adicionada! ✓`), 400)
       } else {
@@ -630,6 +699,7 @@ export default function AnotaAIF() {
           showSnackbar('Erro ao solicitar! Olhe o console (F12).')
           return
         }
+        logAudit(user.id, profile?.full_name, 'suggestion_sent', { subject: name, type: taskType }, classCode)
         closeModal()
         setTimeout(() => showSnackbar(`Solicitação de "${name}" enviada! ✓`), 400)
         // Notifica moderador/admin
@@ -676,6 +746,98 @@ export default function AnotaAIF() {
     await supabase.auth.signOut()
     setCompletions(new Set())
     setTasks([])
+  }
+
+  async function handleFeedbackSubmit(e) {
+    e.preventDefault()
+    const msg = feedbackText.trim()
+    if (!msg) return
+    setFeedbackSending(true)
+    await supabase.from('feedback').insert({
+      user_id: user?.id ?? null,
+      nome: profile?.full_name ?? null,
+      turma: profile?.class_code ?? null,
+      message: msg,
+    })
+    setFeedbackSending(false)
+    setFeedbackSent(true)
+    setFeedbackText('')
+    setTimeout(() => { setFeedbackOpen(false); setFeedbackSent(false) }, 2000)
+  }
+
+  // ── Subgrupos ─────────────────────────────────────────
+  async function handleCreateSubgroup(e) {
+    e.preventDefault()
+    const name = sgName.trim()
+    if (!name) return
+    if (hasProfanity(name)) { setSgError('Nome inapropriado. Tente outro.'); return }
+    if (!profile?.class_code) { setSgError('Você precisa estar em uma turma.'); return }
+    setSgLoading(true); setSgError('')
+
+    const { data, error } = await supabase
+      .from('subgroups')
+      .insert({ name, class_code: profile.class_code, created_by: user.id })
+      .select()
+      .single()
+
+    if (error) { setSgError('Erro ao criar: ' + error.message); setSgLoading(false); return }
+    if (!data?.id) { setSgError('Erro ao obter ID do subgrupo.'); setSgLoading(false); return }
+
+    // Adiciona como owner
+    await supabase.from('subgroup_members').insert({ subgroup_id: data.id, user_id: user.id, role: 'owner' })
+    await logAudit(user.id, profile?.full_name, 'subgroup_created', { name, subgroup_id: data.id }, profile.class_code)
+
+    await loadMySubgroups()
+    setActiveSubgroup({ ...data, role: 'owner' })
+    setViewMode('subgroup')
+    setSgName(''); setSgError(''); setSgLoading(false)
+  }
+
+  async function handleJoinSubgroup(e) {
+    e.preventDefault()
+    const code = sgJoinCode.trim().toUpperCase()
+    if (!code) return
+    setSgLoading(true); setSgError('')
+
+    const { data: sg, error } = await supabase
+      .from('subgroups')
+      .select('*')
+      .eq('invite_code', code)
+      .maybeSingle()
+
+    if (error || !sg) { setSgError('Código inválido.'); setSgLoading(false); return }
+    if (sg.class_code !== profile?.class_code) { setSgError('Este subgrupo é de outra sala.'); setSgLoading(false); return }
+
+    const { error: joinErr } = await supabase
+      .from('subgroup_members')
+      .insert({ subgroup_id: sg.id, user_id: user.id, role: 'member' })
+
+    if (joinErr && joinErr.code !== '23505') { setSgError('Erro ao entrar.'); setSgLoading(false); return }
+
+    await loadMySubgroups()
+    setActiveSubgroup({ ...sg, role: 'member' })
+    setViewMode('subgroup')
+    setSgJoinCode(''); setSgLoading(false)
+  }
+
+  async function handleLeaveSubgroup(sg) {
+    if (!confirm(`Sair do subgrupo "${sg.name}"?`)) return
+    await supabase.from('subgroup_members').delete().eq('subgroup_id', sg.id).eq('user_id', user.id)
+    if (activeSubgroup?.id === sg.id) { setActiveSubgroup(null); setViewMode(null) }
+    await loadMySubgroups()
+  }
+
+  async function handleDeleteSubgroup(sg) {
+    if (!confirm(`Apagar o subgrupo "${sg.name}" permanentemente? Todas as tarefas do subgrupo serão removidas.`)) return
+    await supabase.from('subgroups').delete().eq('id', sg.id)
+    if (activeSubgroup?.id === sg.id) { setActiveSubgroup(null); setViewMode(null) }
+    await loadMySubgroups()
+  }
+
+  async function copySubgroupInvite(code) {
+    const link = `${window.location.origin}/?sgcode=${code}`
+    try { await navigator.clipboard.writeText(link) } catch (_) {}
+    showSnackbar('Link do subgrupo copiado! ✓')
   }
 
   // ── Push Notifications ────────────────────────────────
@@ -888,7 +1050,7 @@ export default function AnotaAIF() {
     const url = new URL(window.location.href)
     url.searchParams.delete('room')
     window.history.replaceState({}, '', url)
-    loadData()
+    loadData(null)
   }
 
   // ── Snackbar ──────────────────────────────────────────
@@ -932,7 +1094,7 @@ export default function AnotaAIF() {
       addedDone = true
     }
     const urgency     = getUrgency(task)
-    const dueDateText = formatDueDate(task.dueDate, urgency)
+    const dueDateText = formatDueDate(task.dueDate)
     const delay       = Math.min(i * 0.065, 0.30).toFixed(2)
     listItems.push(
       <TaskCard
@@ -943,7 +1105,7 @@ export default function AnotaAIF() {
         delay={delay}
         onToggle={() => handleToggleDone(task.id)}
         onEdit={() => openModal(task)}
-        canDelete={!!(profile?.is_admin || profile?.is_moderator)}
+        canDelete={!!(profile?.is_admin || profile?.is_moderator || (task.subgroupId && (task.createdBy === user?.id || activeSubgroup?.role === 'owner')))}
         onDelete={() => handleDeleteTask(task.id)}
         onDoubts={() => openDoubts(task)}
       />
@@ -953,6 +1115,117 @@ export default function AnotaAIF() {
   // ── Render ────────────────────────────────────────────
   if (user === undefined) return null  // verificando sessão
   if (user === null) return <AuthScreen onAuth={handleAuth} />
+
+  // ── Seletor de contexto (Google Classroom style) ─────
+  if (!viewMode && profile) {
+    const classLabel = profile.ano_turma && profile.curso
+      ? `${profile.ano_turma} · ${profile.curso}`
+      : profile.class_code ?? 'Minha Sala'
+    const campusLabel = campusShort(profile.campus)
+
+    return (
+      <div className="selector-screen">
+        <header className="selector-header">
+          <div className="selector-brand">
+            <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="logo-img" style={{ width:36, height:36, borderRadius:8 }}/>
+            <span className="app-title" style={{ fontSize:18 }}>Anota AIF!</span>
+          </div>
+          <button className="user-bar-signout" style={{ color:'rgba(255,255,255,0.7)', border:'1px solid rgba(255,255,255,0.25)' }}
+            onClick={handleSignOut}>
+            <svg viewBox="0 0 20 20" fill="none" style={{ width:14, height:14 }}><path d="M13 3h4a1 1 0 011 1v12a1 1 0 01-1 1h-4M8 14l4-4-4-4M12 10H3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Sair
+          </button>
+        </header>
+
+        <main className="selector-main">
+          <p className="selector-greeting">Olá, {profile?.full_name?.split(' ')[0] ?? 'Aluno'}! Onde você quer entrar?</p>
+
+          <div className="selector-grid">
+            {/* Card da sala */}
+            {profile?.class_code && (
+              <button className="selector-card selector-card--class" onClick={() => setViewMode('class')}>
+                <div className="sc-accent"/>
+                <div className="sc-body">
+                  <p className="sc-label">Turma</p>
+                  <p className="sc-title">{classLabel}</p>
+                  <p className="sc-sub">{campusLabel}</p>
+                </div>
+                <div className="sc-arrow">→</div>
+              </button>
+            )}
+
+            {/* Cards de subgrupos */}
+            {mySubgroups.map(sg => (
+              <div key={sg.id} style={{ position:'relative' }}>
+                <button className="selector-card selector-card--subgroup"
+                  onClick={() => { setActiveSubgroup(sg); setViewMode('subgroup') }}
+                  style={{ width:'100%' }}>
+                  <div className="sc-accent"/>
+                  <div className="sc-body">
+                    <p className="sc-label">Subgrupo {sg.role === 'owner' ? '👑' : ''}</p>
+                    <p className="sc-title">{sg.name}</p>
+                    <p className="sc-sub">Código: {sg.invite_code}</p>
+                  </div>
+                  <div className="sc-arrow">→</div>
+                </button>
+                {(sg.role === 'owner' || profile?.is_admin) && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDeleteSubgroup(sg) }}
+                    title="Apagar subgrupo"
+                    style={{ position:'absolute', top:8, right:8, background:'rgba(239,68,68,0.1)', border:'none', borderRadius:6,
+                      color:'var(--red)', cursor:'pointer', fontSize:12, padding:'4px 8px', fontWeight:700 }}
+                  >
+                    🗑 Apagar
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Criar / Entrar em subgrupo */}
+          {profile?.class_code && (
+            <div className="selector-sg-section">
+              <p className="selector-sg-title">Subgrupos</p>
+              <div className="selector-sg-tabs">
+                {[{id:'create',label:'Criar'},{id:'join',label:'Entrar com código'}].map(t => (
+                  <button key={t.id} onClick={() => setSgTab(t.id)}
+                    className={`selector-sg-tab${sgTab===t.id?' active':''}`}>{t.label}</button>
+                ))}
+              </div>
+
+              {sgError && <p style={{ color:'var(--red)', fontSize:13, margin:'8px 0 0' }}>{sgError}</p>}
+
+              {sgTab === 'create' && (
+                <form onSubmit={handleCreateSubgroup} style={{ display:'flex', gap:8, marginTop:10, flexWrap:'wrap' }}>
+                  <input className="form-input" type="text" maxLength={40}
+                    placeholder="Nome do grupo (ex: Grupo de Física)"
+                    value={sgName} onChange={e => setSgName(e.target.value)} required
+                    style={{ flex:1, minWidth:200 }}/>
+                  <button type="submit" className="btn-submit" disabled={!sgName.trim()||sgLoading} style={{ flexShrink:0 }}>
+                    {sgLoading ? 'Criando…' : 'Criar'}
+                  </button>
+                </form>
+              )}
+
+              {sgTab === 'join' && (
+                <form onSubmit={handleJoinSubgroup} style={{ display:'flex', gap:8, marginTop:10, flexWrap:'wrap' }}>
+                  <input className="form-input" type="text" maxLength={8}
+                    placeholder="Código do subgrupo" value={sgJoinCode}
+                    onChange={e => setSgJoinCode(e.target.value.toUpperCase())} required
+                    style={{ flex:1, minWidth:160, textTransform:'uppercase', letterSpacing:2, fontWeight:700 }}/>
+                  <button type="submit" className="btn-submit" disabled={!sgJoinCode.trim()||sgLoading} style={{ flexShrink:0 }}>
+                    {sgLoading ? 'Entrando…' : 'Entrar'}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
+    )
+  }
+
+  if (!viewMode) return null // perfil ainda carregando
 
   return (
     <>
@@ -964,17 +1237,36 @@ export default function AnotaAIF() {
               <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="logo-img" />
             </div>
             <div>
-              <h1 className="app-title">Anota AIF!</h1>
+              <h1 className="app-title">
+                {viewMode === 'subgroup' ? activeSubgroup?.name : 'Anota AIF!'}
+              </h1>
               <p className="app-subtitle">
-                {profile
-                  ? `${profile.ano_turma ?? ''} · ${profile.curso ?? ''} · ${campusShort(profile.campus)}`
-                  : 'IFSP'}
+                {viewMode === 'subgroup'
+                  ? `Subgrupo · ${profile?.ano_turma ?? ''} ${profile?.curso ?? ''}`
+                  : profile
+                    ? `${profile.ano_turma ?? ''} · ${profile.curso ?? ''} · ${campusShort(profile.campus)}`
+                    : 'IFSP'}
               </p>
-              {profile?.class_code && (
-                <button className="btn-turma" onClick={loadMembers} title="Ver colegas">
-                  👥 Turma
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                <button className="btn-turma" onClick={() => { setViewMode(null); setTasks([]); setActiveSubgroup(null) }} title="Voltar à tela inicial">
+                  ← Início
                 </button>
-              )}
+                {profile?.class_code && viewMode === 'class' && (
+                  <button className="btn-turma" onClick={loadMembers} title="Ver colegas">
+                    👥 Turma
+                  </button>
+                )}
+                {viewMode === 'subgroup' && activeSubgroup?.role === 'owner' && (
+                  <>
+                    <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.75)', letterSpacing:1.5, background:'rgba(255,255,255,0.15)', borderRadius:6, padding:'2px 8px' }}>
+                      {activeSubgroup.invite_code}
+                    </span>
+                    <button className="btn-turma" onClick={() => copySubgroupInvite(activeSubgroup.invite_code)} title="Copiar link de convite">
+                      🔗 Convidar
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1134,6 +1426,13 @@ export default function AnotaAIF() {
               {inviteCopied ? 'Copiado!' : 'Convidar'}
             </button>
           )}
+          <button className="user-bar-signout" onClick={() => setFeedbackOpen(true)} title="Dar feedback">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M3 5a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2H7l-4 3V5z"
+                    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Feedback
+          </button>
           <button className="user-bar-signout" onClick={handleSignOut} title="Sair">
             <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M13 3h4a1 1 0 011 1v12a1 1 0 01-1 1h-4M8 14l4-4-4-4M12 10H3"
@@ -1143,6 +1442,18 @@ export default function AnotaAIF() {
           </button>
         </div>
       </header>
+
+      {/* Banner: subgrupo ativo */}
+      {activeSubgroup && !viewingRoom && (
+        <div className="notif-banner" style={{ background: '#6366f1' }}>
+          <div className="notif-banner-icon">🔵</div>
+          <div className="notif-banner-text">
+            <strong>{activeSubgroup.name}</strong>
+            <span>Você está vendo as tarefas do subgrupo · código: {activeSubgroup.invite_code}</span>
+          </div>
+          <button className="notif-banner-btn" onClick={() => setActiveSubgroup(null)}>Sair</button>
+        </div>
+      )}
 
       {/* Banner: admin visualizando outra sala */}
       {viewingRoom && (
@@ -1195,7 +1506,7 @@ export default function AnotaAIF() {
       {/* FAB */}
       <button
         className={`fab${isModalOpen ? ' open' : ''}`}
-        aria-label={(profile?.is_admin || profile?.is_moderator) ? 'Adicionar nova tarefa' : 'Solicitar tarefa ao moderador'}
+        aria-label={(profile?.is_admin || profile?.is_moderator || activeSubgroup) ? 'Adicionar nova tarefa' : 'Solicitar tarefa ao moderador'}
         onClick={isModalOpen ? closeModal : () => openModal()}
       >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1215,7 +1526,7 @@ export default function AnotaAIF() {
 
           <div className="modal-header">
             <h2 className="modal-title" id="modal-title">
-              {isEditing ? 'Editar Tarefa' : (profile?.is_admin || profile?.is_moderator) ? 'Nova Tarefa' : 'Solicitar Tarefa'}
+              {isEditing ? 'Editar Tarefa' : (profile?.is_admin || profile?.is_moderator || activeSubgroup) ? (activeSubgroup ? `Nova — ${activeSubgroup.name}` : 'Nova Tarefa') : 'Solicitar Tarefa'}
             </h2>
             <button className="modal-close" aria-label="Fechar modal" onClick={closeModal}>
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1538,6 +1849,59 @@ export default function AnotaAIF() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Feedback */}
+      {feedbackOpen && (
+        <div
+          className="modal-overlay open"
+          role="presentation"
+          onClick={(e) => { if (e.target === e.currentTarget) { setFeedbackOpen(false); setFeedbackSent(false); setFeedbackText('') } }}
+        >
+          <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="feedback-title" style={{ maxHeight: '60vh' }}>
+            <div className="modal-handle" aria-hidden="true"/>
+            <div className="modal-header">
+              <h2 className="modal-title" id="feedback-title">Feedback</h2>
+              <button className="modal-close" aria-label="Fechar" onClick={() => { setFeedbackOpen(false); setFeedbackSent(false); setFeedbackText('') }}>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+            {feedbackSent ? (
+              <div style={{ padding: '32px 24px', textAlign: 'center' }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🙏</div>
+                <p style={{ fontWeight: 600, fontSize: 16, color: 'var(--green-primary)' }}>Obrigado pelo feedback!</p>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>Sua opinião ajuda a melhorar o app.</p>
+              </div>
+            ) : (
+              <form className="task-form" onSubmit={handleFeedbackSubmit} noValidate>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="feedback-input">O que você achou? Tem alguma sugestão?</label>
+                  <textarea
+                    id="feedback-input"
+                    className="form-input"
+                    style={{ resize: 'vertical', minHeight: 100, fontFamily: 'inherit', fontSize: 14, lineHeight: 1.5 }}
+                    placeholder="Escreva aqui seu feedback…"
+                    value={feedbackText}
+                    onChange={e => setFeedbackText(e.target.value.slice(0, 500))}
+                    maxLength={500}
+                    required
+                  />
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>{feedbackText.length}/500</p>
+                </div>
+                <button
+                  type="submit"
+                  className="btn-submit"
+                  disabled={!feedbackText.trim() || feedbackSending}
+                  style={{ width: '100%' }}
+                >
+                  {feedbackSending ? 'Enviando…' : 'Enviar Feedback'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}

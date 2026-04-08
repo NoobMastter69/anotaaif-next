@@ -8,35 +8,35 @@ export default function AdminPage() {
   const router = useRouter()
   const [profiles, setProfiles]       = useState([])
   const [suggestions, setSuggestions] = useState([])
-  const [rooms, setRooms]             = useState([])      // tabela rooms
-  const [expandedRoom, setExpandedRoom] = useState(null)  // code da sala com tarefas expandidas
-  const [roomTasks, setRoomTasks]     = useState({})      // { code: [{...}] }
-  const [copiedInvite, setCopiedInvite] = useState(null)  // code cujo invite foi copiado
+  const [rooms, setRooms]             = useState([])
+  const [feedbacks, setFeedbacks]     = useState([])
+  const [auditLogs, setAuditLogs]     = useState([])
+  const [subgroups, setSubgroups]     = useState([])
+  const [expandedRoom, setExpandedRoom] = useState(null)
+  const [roomTasks, setRoomTasks]     = useState({})
+  const [copiedInvite, setCopiedInvite] = useState(null)
+  const [activeTab, setActiveTab]     = useState('overview')  // 'overview' | 'feedback' | 'logs' | 'subgroups'
   const [loading, setLoading]         = useState(true)
   const [search, setSearch]           = useState('')
   const [flash, setFlash]             = useState('')
   const [authError, setAuthError]     = useState('')
 
   async function loadProfiles() {
-    const [{ data, error }, { data: sug }, { data: rms }] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id, full_name, campus, curso, ano_turma, class_code, is_admin, is_moderator, kick_requested, created_at')
-        .order('campus'),
-      supabase
-        .from('task_suggestions')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at'),
-      supabase
-        .from('rooms')
-        .select('*')
-        .order('campus'),
+    const [{ data, error }, { data: sug }, { data: rms }, { data: fbs }, { data: logs }, { data: sgs }] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, campus, curso, ano_turma, class_code, is_admin, is_moderator, kick_requested, created_at').order('campus'),
+      supabase.from('task_suggestions').select('*').eq('status', 'pending').order('created_at'),
+      supabase.from('rooms').select('*').order('campus'),
+      supabase.from('feedback').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
+      supabase.from('subgroups').select('*, subgroup_members(count)').order('created_at', { ascending: false }),
     ])
     if (error) setAuthError('Erro ao carregar perfis: ' + error.message)
     setProfiles(data ?? [])
     setSuggestions(sug ?? [])
     setRooms(rms ?? [])
+    setFeedbacks(fbs ?? [])
+    setAuditLogs(logs ?? [])
+    setSubgroups(sgs ?? [])
   }
 
   useEffect(() => {
@@ -219,7 +219,24 @@ export default function AdminPage() {
 
       {flash && <div className="admin-flash">{flash}</div>}
 
+      {/* Abas */}
+      <div style={{ display:'flex', gap:4, padding:'8px 16px', background:'var(--surface)', borderBottom:'1px solid var(--border)', overflowX:'auto' }}>
+        {[
+          { id:'overview', label:'📊 Visão Geral' },
+          { id:'feedback', label:`💬 Feedback${feedbacks.length ? ` (${feedbacks.length})` : ''}` },
+          { id:'logs',     label:'📋 Registros' },
+          { id:'subgroups',label:`🔵 Subgrupos${subgroups.length ? ` (${subgroups.length})` : ''}` },
+        ].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            style={{ whiteSpace:'nowrap', padding:'7px 14px', borderRadius:8, border:'none', cursor:'pointer', fontSize:13, fontWeight:600,
+              background: activeTab===t.id ? 'var(--green-primary)' : 'var(--bg)', color: activeTab===t.id ? '#fff' : 'var(--text-secondary)' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <main className="admin-main">
+        {activeTab === 'overview' && (
         <button
           className="admin-btn admin-btn-active"
           style={{ marginBottom: 12, width: '100%', padding: '10px', fontSize: 13 }}
@@ -227,7 +244,9 @@ export default function AdminPage() {
         >
           🔔 Testar notificação push (sala A8Y9Z6PW)
         </button>
+        )}
 
+        {activeTab === 'overview' && <>
         {/* Visão geral de todas as salas cadastradas */}
         {rooms.length > 0 && (
           <section className="admin-campus-section" style={{ marginBottom: 16 }}>
@@ -457,6 +476,131 @@ export default function AdminPage() {
 
         {filtered.length === 0 && (
           <p className="admin-empty">Nenhum resultado encontrado.</p>
+        )}
+        </>}
+
+        {/* ── Aba: Feedback ── */}
+        {activeTab === 'feedback' && (
+          <section className="admin-campus-section">
+            <h2 className="admin-campus-title">💬 Feedbacks dos alunos <span className="admin-campus-count">{feedbacks.length}</span></h2>
+            {feedbacks.length === 0
+              ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum feedback ainda.</p>
+              : feedbacks.map(fb => (
+                  <div key={fb.id} className="admin-turma" style={{ marginBottom:8 }}>
+                    <div style={{ padding:'10px 14px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                        <strong style={{ fontSize:14 }}>{fb.nome ?? 'Anônimo'}</strong>
+                        <span style={{ fontSize:11, opacity:0.5 }}>{fb.turma} · {new Date(fb.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+                      </div>
+                      <p style={{ fontSize:13, margin:0, lineHeight:1.5 }}>{fb.message}</p>
+                    </div>
+                  </div>
+                ))
+            }
+          </section>
+        )}
+
+        {/* ── Aba: Registros/Audit Logs ── */}
+        {activeTab === 'logs' && (
+          <section className="admin-campus-section">
+            <h2 className="admin-campus-title">📋 Registros de atividade <span className="admin-campus-count">{auditLogs.length}</span></h2>
+            {auditLogs.length === 0
+              ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum registro ainda.</p>
+              : <div className="admin-turma">
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid #eee', textAlign:'left', opacity:0.6 }}>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Quando</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Quem</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Ação</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Detalhes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map(log => {
+                        const actionLabels = {
+                          task_created: '✅ Criou tarefa',
+                          task_deleted: '🗑 Apagou tarefa',
+                          task_edited: '✏️ Editou tarefa',
+                          suggestion_sent: '📩 Enviou sugestão',
+                          subgroup_created: '🔵 Criou subgrupo',
+                          subgroup_task_created: '🔵 Criou tarefa no subgrupo',
+                          name_changed: '✏️ Mudou nome',
+                          user_banned: '🚫 Baniu usuário',
+                          mod_granted: '⭐ Deu mod',
+                          mod_revoked: '⭐ Removeu mod',
+                        }
+                        return (
+                          <tr key={log.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
+                            <td style={{ padding:'5px 8px', whiteSpace:'nowrap', opacity:0.6 }}>
+                              {new Date(log.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' })} {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
+                            </td>
+                            <td style={{ padding:'5px 8px', fontWeight:600 }}>{log.user_name ?? '—'}</td>
+                            <td style={{ padding:'5px 8px' }}>{actionLabels[log.action] ?? log.action}</td>
+                            <td style={{ padding:'5px 8px', opacity:0.7 }}>
+                              {log.details?.subject && <span>"{log.details.subject}"</span>}
+                              {log.details?.name && <span>"{log.details.name}"</span>}
+                              {log.details?.subgroup && <span>subgrupo: {log.details.subgroup}</span>}
+                              {log.class_code && <span style={{ marginLeft:6, fontSize:11, background:'#f0f0f0', padding:'1px 5px', borderRadius:4 }}>{log.class_code}</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+            }
+          </section>
+        )}
+
+        {/* ── Aba: Subgrupos ── */}
+        {activeTab === 'subgroups' && (
+          <section className="admin-campus-section">
+            <h2 className="admin-campus-title">🔵 Subgrupos <span className="admin-campus-count">{subgroups.length}</span></h2>
+            {subgroups.length === 0
+              ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum subgrupo criado ainda.</p>
+              : <div className="admin-turma">
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid #eee', textAlign:'left', opacity:0.6 }}>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Nome</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Sala</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Membros</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Código</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Criado em</th>
+                        <th style={{ padding:'6px 8px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subgroups.map(sg => (
+                        <tr key={sg.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
+                          <td style={{ padding:'6px 8px', fontWeight:600 }}>{sg.name}</td>
+                          <td style={{ padding:'6px 8px' }}><code style={{ background:'#f0f0f0', padding:'2px 5px', borderRadius:4 }}>{sg.class_code}</code></td>
+                          <td style={{ padding:'6px 8px', textAlign:'center' }}>{sg.subgroup_members?.[0]?.count ?? 0}</td>
+                          <td style={{ padding:'6px 8px' }}><code style={{ fontWeight:700 }}>{sg.invite_code}</code></td>
+                          <td style={{ padding:'6px 8px', opacity:0.6 }}>{new Date(sg.created_at).toLocaleDateString('pt-BR')}</td>
+                          <td style={{ padding:'6px 8px' }}>
+                            <button
+                              className="admin-btn admin-btn-danger"
+                              style={{ fontSize:11, padding:'2px 8px' }}
+                              onClick={async () => {
+                                if (!confirm(`Apagar subgrupo "${sg.name}"? Todas as tarefas do subgrupo serão removidas.`)) return
+                                const { error } = await supabase.from('subgroups').delete().eq('id', sg.id)
+                                if (error) { showFlash('Erro: ' + error.message); return }
+                                showFlash(`Subgrupo "${sg.name}" apagado ✓`)
+                                await loadProfiles()
+                              }}
+                            >
+                              Apagar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+            }
+          </section>
         )}
       </main>
     </div>
