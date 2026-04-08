@@ -812,7 +812,9 @@ export default function AnotaAIF() {
     setDoubts(data ?? [])
   }
 
-  async function handleDeleteDoubt(doubtId) {
+  async function handleDeleteDoubt(doubtId, isOwn) {
+    const msg = isOwn ? 'Tem certeza que quer apagar sua dúvida?' : 'Apagar essa dúvida por ser ofensiva?'
+    if (!confirm(msg)) return
     await supabase.from('doubts').delete().eq('id', doubtId)
     setDoubts(prev => prev.filter(d => d.id !== doubtId))
   }
@@ -1470,7 +1472,7 @@ export default function AnotaAIF() {
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:4 }}>
                     <p style={{ margin:0, fontSize:13 }}><strong>{d.user_name}</strong>: {d.question}</p>
                     {(d.user_id === user.id || profile?.is_admin || profile?.is_moderator) && (
-                      <button onClick={() => handleDeleteDoubt(d.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#ccc', fontSize:16, padding:0, flexShrink:0 }} title="Apagar dúvida">✕</button>
+                      <button onClick={() => handleDeleteDoubt(d.id, d.user_id === user.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#ccc', fontSize:16, padding:0, flexShrink:0 }} title="Apagar dúvida">✕</button>
                     )}
                   </div>
                   <p style={{ margin:'0 0 8px', fontSize:11, opacity:0.5 }}>{new Date(d.created_at).toLocaleDateString('pt-BR')}</p>
