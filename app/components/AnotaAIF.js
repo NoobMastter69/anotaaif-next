@@ -269,11 +269,6 @@ export default function AnotaAIF() {
   const [descError, setDescError]       = useState('')
   const [dateError, setDateError]       = useState('')
 
-  // Editar nome
-  const [editingName, setEditingName] = useState(false)
-  const [newNameValue, setNewNameValue] = useState('')
-  const [nameError, setNameError]     = useState('')
-
   // Ver colegas
   const [showMembers, setShowMembers] = useState(false)
   const [members, setMembers]         = useState([])
@@ -812,21 +807,6 @@ export default function AnotaAIF() {
     }
   }
 
-  async function handleChangeName() {
-    const name = newNameValue.trim()
-    if (name.length < 2) { setNameError('Mínimo 2 caracteres.'); return }
-    if (name.length > 40) { setNameError('Máximo 40 caracteres.'); return }
-    if (hasProfanity(name)) { setNameError('Nome contém palavras não permitidas.'); return }
-
-    const { error } = await supabase.from('profiles').update({ full_name: name }).eq('id', user.id)
-    if (error) { setNameError('Erro ao salvar. Tente novamente.'); return }
-    await supabase.auth.updateUser({ data: { full_name: name } })
-    setProfile(prev => ({ ...prev, full_name: name }))
-    setEditingName(false)
-    setNameError('')
-    showSnackbar(`Nome atualizado para "${name}" ✓`)
-  }
-
   async function loadMembers() {
     if (!profile?.class_code) return
     const { data } = await supabase.from('profiles')
@@ -1116,32 +1096,15 @@ export default function AnotaAIF() {
 
         {/* Usuário logado + sair */}
         <div className="user-bar">
-          {editingName ? (
-            <div style={{ display:'flex', alignItems:'center', gap:6, flex:1, minWidth:0 }}>
-              <input
-                autoFocus
-                className="user-name-input"
-                value={newNameValue}
-                onChange={e => { setNewNameValue(e.target.value); setNameError('') }}
-                onKeyDown={e => { if (e.key==='Enter') handleChangeName(); if (e.key==='Escape') setEditingName(false) }}
-                maxLength={40}
-                placeholder="Seu apelido"
-              />
-              <button className="user-bar-signout" onClick={handleChangeName} style={{ padding:'4px 10px' }}>✓</button>
-              <button className="user-bar-signout" onClick={() => { setEditingName(false); setNameError('') }} style={{ padding:'4px 8px' }}>✕</button>
-              {nameError && <span style={{ fontSize:10, color:'#ffcccc', position:'absolute', bottom:2, left:16 }}>{nameError}</span>}
-            </div>
-          ) : (
-            <button
-              className="user-bar-name"
-              style={{ background:'none', border:'none', cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:5 }}
-              onClick={() => { setNewNameValue(profile?.full_name ?? user.user_metadata?.full_name ?? ''); setEditingName(true) }}
-              title="Clique para mudar seu apelido"
-            >
-              {profile?.full_name ?? user.user_metadata?.full_name ?? 'Aluno'}
-              <span style={{ fontSize:10, opacity:0.5 }}>✏️</span>
-            </button>
-          )}
+          <button
+            className="user-bar-name"
+            style={{ background:'none', border:'none', cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:5 }}
+            onClick={() => router.push('/perfil')}
+            title="Ver perfil"
+          >
+            {profile?.full_name ?? user.user_metadata?.full_name ?? 'Aluno'}
+            <span style={{ fontSize:10, opacity:0.5 }}>✏️</span>
+          </button>
           {profile?.class_code && (
             <button
               className="user-bar-signout"
