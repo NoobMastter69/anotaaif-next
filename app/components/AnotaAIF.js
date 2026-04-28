@@ -68,8 +68,8 @@ const STORAGE_KEY  = 'anotaaif_tasks'
 const SUBJECTS_KEY = 'anotaaif_subjects'
 
 // ── Mapeamento JS ↔ DB ───────────────────────────────
-function toDb(task, userId = null) {
-  return {
+function toDb(task, userId = null, includeExtraDates = false) {
+  const obj = {
     id: task.id,
     type: task.type,
     subject: task.subject,
@@ -80,6 +80,10 @@ function toDb(task, userId = null) {
     created_at: new Date(task.createdAt).toISOString(),
     ...(userId ? { created_by: userId } : {}),
   }
+  if (includeExtraDates) {
+    obj.extra_dates = (task.extraDates && task.extraDates.length > 0) ? task.extraDates : null
+  }
+  return obj
 }
 
 function fromDb(row) {
@@ -94,6 +98,7 @@ function fromDb(row) {
     createdAt: new Date(row.created_at).getTime(),
     createdBy: row.created_by || null,
     subgroupId: row.subgroup_id || null,
+    extraDates: row.extra_dates || null,
   }
 }
 
@@ -110,11 +115,19 @@ function generateId() {
   return 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
 }
 
+// Retorna a data mais próxima que ainda não passou (ou a última se todas passaram)
+function getNearestDate(task) {
+  const all = [task.dueDate, ...(task.extraDates || [])].filter(Boolean).sort()
+  if (all.length === 0) return task.dueDate
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return all.find(d => new Date(d + 'T00:00:00') >= today) ?? all[all.length - 1]
+}
+
 function getUrgency(task) {
   if (task.done) return 'done'
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const due = new Date(task.dueDate + 'T00:00:00')
+  const due = new Date(getNearestDate(task) + 'T00:00:00')
   const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24))
   if (diffDays <= 1) return 'overdue'  // atrasado, hoje ou amanhã → vermelho
   if (diffDays <= 3) return 'soon'     // 2-3 dias → amarelo
@@ -134,6 +147,11 @@ function formatDueDate(dateStr) {
   if (diffDays === 1) return 'Amanhã'
   if (diffDays <= 6) return `Em ${diffDays} dias`
   return due.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
+function formatShortDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
 // ── TaskCard ──────────────────────────────────────────
@@ -215,12 +233,30 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
                 <path d="M4 1v2.5M10 1v2.5M1 6h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
               </svg>
               {dueDateText}
+              {task.extraDates && task.extraDates.length > 0 && (
+                <span className="task-multiday-badge">
+                  +{task.extraDates.length} {task.extraDates.length === 1 ? 'data' : 'datas'}
+                </span>
+              )}
             </span>
+            {task.extraDates && task.extraDates.length > 0 && (
+              <div className="task-extra-dates">
+                {[task.dueDate, ...task.extraDates].sort().map((d, i) => {
+                  const today = new Date(); today.setHours(0,0,0,0)
+                  const isPast = new Date(d + 'T00:00:00') < today
+                  return (
+                    <span key={i} className={`task-date-chip${isPast ? ' past' : ''}`}>
+                      {formatShortDate(d)}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
             {(task.materialUrl || onDoubts) && (
               <div className="task-card-footer" onClick={e => e.stopPropagation()}>
                 {task.materialUrl && (
                   <a href={task.materialUrl} target="_blank" rel="noopener noreferrer" className="task-footer-btn task-footer-material">
-                    📎 Material
+                    {task.materialUrl.includes('/storage/v1/object/public/task-files/') ? '📁 Arquivo' : '📎 Material'}
                   </a>
                 )}
                 <button className="task-footer-btn task-footer-doubts" onClick={onDoubts}>
@@ -257,6 +293,56 @@ function TaskCard({ task, urgency, dueDateText, delay, onToggle, onEdit, onDelet
   )
 }
 
+// ── EventCard ─────────────────────────────────────────
+function EventCard({ task, delay, onEdit, onDelete, canDelete }) {
+  const today = new Date(); today.setHours(0,0,0,0)
+  const eventDate = new Date(task.dueDate + 'T00:00:00')
+  const diffDays = Math.ceil((eventDate - today) / (1000 * 60 * 60 * 24))
+  const isPast = diffDays < 0
+  const dateText = formatDueDate(task.dueDate)
+
+  return (
+    <div className={`event-card${isPast ? ' event-past' : ''}`} style={{ animationDelay: `${delay}s` }}>
+      <div className="event-accent" />
+      <div className="event-body">
+        <div className="event-header-row">
+          <span className="event-name">{task.subject}</span>
+          <span className="event-badge">Evento</span>
+        </div>
+        {task.description && <p className="event-description">{task.description}</p>}
+        <div className="event-footer">
+          <span className="event-date">
+            <svg className="due-icon" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <rect x="1" y="2" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M4 1v2.5M10 1v2.5M1 6h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            {dateText}
+          </span>
+          {task.materialUrl && (
+            <a href={task.materialUrl} target="_blank" rel="noopener noreferrer" className="event-link-btn">
+              🔗 Mais info
+            </a>
+          )}
+        </div>
+      </div>
+      {canDelete && (
+        <div className="event-actions">
+          <button className="event-action-btn event-edit-btn" onClick={onEdit} title="Editar evento" aria-label="Editar evento">
+            <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+              <path d="M13.5 2.5l4 4L6 18H2v-4L13.5 2.5z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button className="event-action-btn event-del-btn" onClick={onDelete} title="Remover evento" aria-label="Remover evento">
+            <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+              <path d="M3 5h14M8 5V3h4v2M16 5l-1 12H5L4 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Componente Principal ──────────────────────────────
 export default function AnotaAIF() {
   const router = useRouter()
@@ -289,6 +375,13 @@ export default function AnotaAIF() {
   const [desc, setDesc]             = useState('')
   const [dueDate, setDueDate]       = useState('')
   const [materialUrl, setMaterialUrl] = useState('')
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [uploadedFileName, setUploadedFileName] = useState('')
+  const fileInputRef = useRef(null)
+  // Múltiplos dias
+  const [isMultiDay, setIsMultiDay]     = useState(false)
+  const [extraDates, setExtraDates]     = useState([])
+  const [hasExtraDates, setHasExtraDates] = useState(false) // coluna existe no DB?
   const [subjectError, setSubjectError] = useState('')
   const [descError, setDescError]       = useState('')
   const [dateError, setDateError]       = useState('')
@@ -298,6 +391,16 @@ export default function AnotaAIF() {
   const [feedbackText, setFeedbackText]   = useState('')
   const [feedbackSent, setFeedbackSent]   = useState(false)
   const [feedbackSending, setFeedbackSending] = useState(false)
+  const [feedbackNudge, setFeedbackNudge] = useState(false)
+
+  // Popup de novidade: Eventos
+  const [showEventsPopup, setShowEventsPopup] = useState(false)
+
+  // Popup de atualização 28/04/2026
+  const [showUpdatePopup, setShowUpdatePopup] = useState(false)
+
+  // Aviso de sala removida
+  const [roomRemovedNotice, setRoomRemovedNotice] = useState(false)
 
   // Subgrupos + seletor de contexto
   const [mySubgroups, setMySubgroups]         = useState([])
@@ -310,7 +413,7 @@ export default function AnotaAIF() {
   const [sgLoading, setSgLoading]             = useState(false)
 
   // Ver colegas
-  const [showMembers, setShowMembers] = useState(false)
+  const [showMembers, setShowMembers] = useState(null)
   const [members, setMembers]         = useState([])
 
   // Dúvidas
@@ -321,9 +424,14 @@ export default function AnotaAIF() {
   const [savedSubjects, setSavedSubjects] = useState([])
   const [suggestions, setSuggestions]     = useState([])
 
-  const subjectRef      = useRef(null)
-  const snackTimerRef   = useRef(null)
+  const subjectRef       = useRef(null)
+  const snackTimerRef    = useRef(null)
   const pendingDeleteRef = useRef(null)   // { task, timerId }
+  const banChannelRef    = useRef(null)
+  const manualSignOutRef = useRef(false)
+
+  // Ban detection
+  const [isBanned, setIsBanned] = useState(false)
 
   // Push notification subscription
   const [pushEnabled, setPushEnabled] = useState(false)
@@ -388,6 +496,13 @@ export default function AnotaAIF() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Detecta se a coluna extra_dates existe no banco
+  useEffect(() => {
+    if (!user) return
+    supabase.from('tasks').select('extra_dates').limit(1)
+      .then(({ error }) => setHasExtraDates(!error))
+  }, [user])
+
   // Carrega dados quando o usuário estiver autenticado
   useEffect(() => {
     if (!user) return
@@ -415,6 +530,48 @@ export default function AnotaAIF() {
     } catch {}
   }, [user])
 
+  // Mostra nudge de feedback (só 1x, some após enviar ou fechar)
+  useEffect(() => {
+    if (!user) return
+    try {
+      const dismissed = localStorage.getItem('feedback_nudge_dismissed')
+      if (!dismissed) {
+        const t = setTimeout(() => setFeedbackNudge(true), 4000)
+        return () => clearTimeout(t)
+      }
+    } catch {}
+  }, [user])
+
+  // Popup de novidade: Eventos — aparece 1x (hoje/amanhã), some para sempre no X
+  useEffect(() => {
+    if (!user) return
+    try {
+      const dismissed = localStorage.getItem('events_popup_v1')
+      if (dismissed) return
+      // Janela: 14 e 15/04/2026
+      const now = new Date()
+      const cutoff = new Date('2026-04-16T00:00:00')
+      if (now < cutoff) {
+        const t = setTimeout(() => setShowEventsPopup(true), 1800)
+        return () => clearTimeout(t)
+      }
+    } catch {}
+  }, [user])
+
+  // Popup de atualização 28/04/2026 — aparece até 29/04 23:00, some para sempre no X
+  useEffect(() => {
+    if (!user) return
+    try {
+      if (localStorage.getItem('update_280426_v1')) return
+      const now = new Date()
+      const cutoff = new Date('2026-04-29T23:00:00')
+      if (now < cutoff) {
+        const t = setTimeout(() => setShowUpdatePopup(true), 2400)
+        return () => clearTimeout(t)
+      }
+    } catch {}
+  }, [user])
+
   // Carrega tasks quando o viewMode mudar (classe ou subgrupo escolhido)
   useEffect(() => {
     if (!user || !viewMode) return
@@ -431,6 +588,32 @@ export default function AnotaAIF() {
         .single()
       if (error) throw error
       setProfile(data)
+
+      // Detecta sala removida: se o admin deletou a sala, profile.class_code vira null
+      // mas localStorage ainda guarda o código anterior → mostra aviso
+      try {
+        const lastCode = localStorage.getItem('anotaaif_last_class_code')
+        if (lastCode && !data.class_code) {
+          localStorage.removeItem('anotaaif_last_class_code')
+          setRoomRemovedNotice(true)
+        } else if (data.class_code) {
+          localStorage.setItem('anotaaif_last_class_code', data.class_code)
+        }
+      } catch {}
+
+      // Detecta ban em tempo real — se o perfil for deletado, exibe tela de banido
+      if (banChannelRef.current) supabase.removeChannel(banChannelRef.current)
+      banChannelRef.current = supabase
+        .channel(`ban-${user.id}`)
+        .on('postgres_changes', {
+          event: 'DELETE', schema: 'public', table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        }, () => {
+          setIsBanned(true)
+          supabase.auth.signOut()
+        })
+        .subscribe()
+
       syncPushSubscription(user.id)
 
       // Verifica ?room=CODE para admin entrar em outra sala
@@ -443,8 +626,14 @@ export default function AnotaAIF() {
           setViewingRoom(room.toUpperCase())
         }
       }
-    } catch {
-      setProfile({ class_code: 'INFO2026' })
+    } catch (err) {
+      // PGRST116 = 0 rows de .single() → perfil deletado (ban ou deleção acidental)
+      if (err?.code === 'PGRST116') {
+        setIsBanned(true)
+        supabase.auth.signOut()
+        return
+      }
+      // Outros erros (rede, etc.) → não quebra o app, deixa sem perfil carregado
     }
     // Não carrega tasks automaticamente — seletor de contexto cuida disso
   }
@@ -520,12 +709,19 @@ export default function AnotaAIF() {
     }
   }, [isModalOpen])
 
-  // Fecha com Escape
+  // Fecha qualquer modal aberto com Escape
   useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape' && isModalOpen) closeModal() }
+    const handler = (e) => {
+      if (e.key !== 'Escape') return
+      if (doubtsTask)          { setDoubtsTask(null); return }
+      if (showMembers)         { setShowMembers(null); return }
+      if (feedbackOpen)        { setFeedbackOpen(false); setFeedbackSent(false); setFeedbackText(''); return }
+      if (showIosInstallModal) { setShowIosInstallModal(false); return }
+      if (isModalOpen)         { closeModal() }
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isModalOpen])
+  }, [isModalOpen, doubtsTask, showMembers, feedbackOpen, showIosInstallModal])
 
   // ── Modal ─────────────────────────────────────────────
   function openModal(task = null) {
@@ -535,9 +731,17 @@ export default function AnotaAIF() {
       setSubject(task.subject)
       setDesc(task.description)
       setDueDate(task.dueDate)
-      setMaterialUrl(task.materialUrl ?? '')
+      const url = task.materialUrl ?? ''
+      setMaterialUrl(url)
+      const isStorageUrl = url.includes('/storage/v1/object/public/task-files/')
+      setUploadedFileName(isStorageUrl ? decodeURIComponent(url.split('/').pop().replace(/^\d+_[a-z0-9]+\./, '')) : '')
+      const eds = task.extraDates || []
+      setIsMultiDay(eds.length > 0)
+      setExtraDates(eds)
     } else {
       setEditingTask(null)
+      // Pré-seleciona 'evento' quando estiver na aba Eventos
+      if (activeFilter === 'evento') setTaskType('evento')
     }
     setIsModalOpen(true)
   }
@@ -550,6 +754,11 @@ export default function AnotaAIF() {
     setDesc('')
     setDueDate('')
     setMaterialUrl('')
+    setUploadedFileName('')
+    setUploadingFile(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setIsMultiDay(false)
+    setExtraDates([])
     setSubjectError('')
     setDescError('')
     setDateError('')
@@ -576,7 +785,7 @@ export default function AnotaAIF() {
     if (!inSubgroup && !profile?.is_admin && !profile?.is_moderator) return
     if (inSubgroup && !isOwner && !profile?.is_admin) return
 
-    const tipo = task.type === 'prova' ? 'prova' : 'atividade'
+    const tipo = task.type === 'prova' ? 'prova' : task.type === 'evento' ? 'evento' : 'atividade'
     if (!confirm(`Tem certeza que quer apagar essa ${tipo}?\n"${task.subject}"`)) return
 
     if (pendingDeleteRef.current) {
@@ -613,7 +822,36 @@ export default function AnotaAIF() {
     setSnackbar(s => ({ ...s, visible: false }))
   }
 
- // 1. Adicionamos a palavra 'async' aqui
+  async function handleFileUpload(file) {
+    if (!file) return
+    setUploadingFile(true)
+    setUploadedFileName('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Sessão expirada')
+
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('classCode', profile?.class_code ?? 'geral')
+
+      const res = await fetch('/api/upload-task-file', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Erro no upload')
+
+      setMaterialUrl(json.url)
+      setUploadedFileName(json.filename)
+    } catch (err) {
+      showSnackbar(err.message || 'Erro ao enviar arquivo. Tente novamente.')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
   async function handleFormSubmit(e) {
     e.preventDefault()
     let valid = true
@@ -633,19 +871,22 @@ export default function AnotaAIF() {
     const descTrimmed = desc.trim()
     persistSubject(name)
 
+    const validExtraDates = isMultiDay && hasExtraDates
+      ? [...new Set(extraDates.filter(d => d && d !== dueDate))].sort()
+      : []
+
     if (editingTask) {
-      // Atualiza a tela primeiro (otimista)
       const mat = materialUrl.trim() || null
       setTasks(prev => prev.map(t =>
         t.id === editingTask.id
-          ? { ...t, type: taskType, subject: name, description: descTrimmed, dueDate, materialUrl: mat }
+          ? { ...t, type: taskType, subject: name, description: descTrimmed, dueDate, materialUrl: mat, extraDates: hasExtraDates ? validExtraDates : t.extraDates }
           : t
       ))
 
-      const { error } = await supabase.from('tasks')
-        .update({ type: taskType, subject: name, description: descTrimmed, due_date: dueDate, material_url: mat })
-        .eq('id', editingTask.id)
-        
+      const updateObj = { type: taskType, subject: name, description: descTrimmed, due_date: dueDate, material_url: mat }
+      if (hasExtraDates) updateObj.extra_dates = validExtraDates.length > 0 ? validExtraDates : null
+      const { error } = await supabase.from('tasks').update(updateObj).eq('id', editingTask.id)
+
       if (error) {
         console.error("🔴 ERRO AO EDITAR NO SUPABASE:", error.message)
         showSnackbar('Erro ao editar! Olhe o console (F12).')
@@ -669,9 +910,10 @@ export default function AnotaAIF() {
           done: false,
           createdAt: Date.now(),
           subgroupId: activeSubgroup?.id ?? null,
+          extraDates: validExtraDates,
         }
         setTasks(prev => [...prev, newTask])
-        const insertData = { ...toDb(newTask, user.id), class_code: classCode }
+        const insertData = { ...toDb(newTask, user.id, hasExtraDates), class_code: classCode }
         if (activeSubgroup) insertData.subgroup_id = activeSubgroup.id
         const { error } = await supabase.from('tasks').insert(insertData)
         if (error) {
@@ -681,6 +923,56 @@ export default function AnotaAIF() {
         }
         logAudit(user.id, profile?.full_name, activeSubgroup ? 'subgroup_task_created' : 'task_created',
           { subject: name, type: taskType, subgroup: activeSubgroup?.name }, classCode)
+        if (activeSubgroup) {
+          fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'subgroup_task',
+              subgroup_id: activeSubgroup.id,
+              subgroup_name: activeSubgroup.name,
+              subject: name,
+              task_type: taskType,
+              created_by_id: user.id,
+              created_by_name: profile?.full_name,
+            }),
+          }).catch(() => {})
+          fetch('/api/notify-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subgroup_id: activeSubgroup.id,
+              title: name,
+              type: taskType,
+              due_date: dueDate || null,
+              description: descTrimmed || null,
+            }),
+          }).catch(() => {})
+        } else {
+          // Notifica todos os membros da sala quando uma tarefa é criada
+          fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'room_task',
+              class_code: classCode,
+              subject: name,
+              task_type: taskType,
+              created_by_name: profile?.full_name,
+            }),
+          }).catch(() => {})
+          fetch('/api/notify-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              class_code: classCode,
+              title: name,
+              type: taskType,
+              due_date: dueDate || null,
+              description: descTrimmed || null,
+            }),
+          }).catch(() => {})
+        }
         closeModal()
         setTimeout(() => showSnackbar(`"${name}" adicionada! ✓`), 400)
       } else {
@@ -743,6 +1035,8 @@ export default function AnotaAIF() {
   }
 
   async function handleSignOut() {
+    manualSignOutRef.current = true
+    if (banChannelRef.current) { supabase.removeChannel(banChannelRef.current); banChannelRef.current = null }
     await supabase.auth.signOut()
     setCompletions(new Set())
     setTasks([])
@@ -762,6 +1056,8 @@ export default function AnotaAIF() {
     setFeedbackSending(false)
     setFeedbackSent(true)
     setFeedbackText('')
+    try { localStorage.setItem('feedback_nudge_dismissed', '1') } catch {}
+    setFeedbackNudge(false)
     setTimeout(() => { setFeedbackOpen(false); setFeedbackSent(false) }, 2000)
   }
 
@@ -992,7 +1288,22 @@ export default function AnotaAIF() {
       .eq('class_code', profile.class_code)
       .order('full_name')
     setMembers(data ?? [])
-    setShowMembers(true)
+    setShowMembers('class')
+  }
+
+  async function loadSubgroupMembers() {
+    if (!activeSubgroup?.id) return
+    const { data: sm } = await supabase.from('subgroup_members')
+      .select('role, user_id')
+      .eq('subgroup_id', activeSubgroup.id)
+    if (!sm?.length) { setMembers([]); setShowMembers('subgroup'); return }
+    const ids = sm.map(r => r.user_id)
+    const { data: profs } = await supabase.from('profiles')
+      .select('id, full_name, ano_turma, curso')
+      .in('id', ids)
+    const roleMap = Object.fromEntries(sm.map(r => [r.user_id, r.role]))
+    setMembers((profs ?? []).map(p => ({ ...p, role: roleMap[p.id] })))
+    setShowMembers('subgroup')
   }
 
   async function openDoubts(task) {
@@ -1067,14 +1378,18 @@ export default function AnotaAIF() {
   // Injeta done por aluno
   const tasksWithDone = tasks.map(t => ({ ...t, done: completions.has(t.id) }))
 
-  const filtered = activeFilter === 'all'
-    ? tasksWithDone
-    : tasksWithDone.filter(t => t.type === activeFilter)
+  // Eventos são sempre separados das tarefas
+  const events      = tasksWithDone.filter(t => t.type === 'evento').sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+  const tasksOnly   = tasksWithDone.filter(t => t.type !== 'evento')
+
+  const filtered = activeFilter === 'all' || activeFilter === 'evento'
+    ? tasksOnly
+    : tasksOnly.filter(t => t.type === activeFilter)
 
   const pending      = filtered.filter(t => !t.done).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
   const done         = filtered.filter(t => t.done)
   const sorted       = [...pending, ...done]
-  const pendingCount = tasksWithDone.filter(t => !t.done).length
+  const pendingCount = tasksOnly.filter(t => !t.done).length  // eventos não contam como pendentes
   const descLen      = desc.length
   const counterClass = 'char-counter' + (descLen >= 220 ? ' over' : descLen >= 180 ? ' limit' : '')
   const isEditing    = Boolean(editingTask)
@@ -1094,7 +1409,7 @@ export default function AnotaAIF() {
       addedDone = true
     }
     const urgency     = getUrgency(task)
-    const dueDateText = formatDueDate(task.dueDate)
+    const dueDateText = formatDueDate(getNearestDate(task))
     const delay       = Math.min(i * 0.065, 0.30).toFixed(2)
     listItems.push(
       <TaskCard
@@ -1113,6 +1428,24 @@ export default function AnotaAIF() {
   })
 
   // ── Render ────────────────────────────────────────────
+  if (isBanned) return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0f0f0f', padding:24 }}>
+      <div style={{ background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:20, padding:'56px 48px', maxWidth:480, width:'100%', textAlign:'center' }}>
+        <div style={{ fontSize:56, marginBottom:16, lineHeight:1 }}>🔨</div>
+        <h2 style={{ fontSize:22, fontWeight:700, color:'#ef4444', margin:'0 0 10px' }}>Você foi banido</h2>
+        <p style={{ fontSize:14, color:'rgba(255,255,255,0.5)', lineHeight:1.7, margin:'0 0 20px' }}>
+          Sua conta foi removida por um moderador.<br/>Se acha que foi engano, fala com seu professor.
+        </p>
+        <button
+          onClick={async () => { await supabase.auth.signOut(); setIsBanned(false) }}
+          style={{ background:'#2a2a2a', border:'1px solid #3a3a3a', color:'#fff', borderRadius:10, padding:'10px 20px', cursor:'pointer', fontSize:13 }}
+        >
+          Voltar ao login
+        </button>
+      </div>
+    </div>
+  )
+
   if (user === undefined) return null  // verificando sessão
   if (user === null) return <AuthScreen onAuth={handleAuth} />
 
@@ -1139,6 +1472,24 @@ export default function AnotaAIF() {
 
         <main className="selector-main">
           <p className="selector-greeting">Olá, {profile?.full_name?.split(' ')[0] ?? 'Aluno'}! Onde você quer entrar?</p>
+
+          {roomRemovedNotice && (
+            <div style={{
+              background: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.3)',
+              borderRadius: 12, padding: '12px 14px', marginBottom: 16,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <span style={{ fontSize: 20 }}>🏫</span>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--red)', lineHeight: 1.5, flex: 1 }}>
+                <strong>Sua sala foi removida.</strong> Entre em contato com seu professor para entrar em uma nova turma.
+              </p>
+              <button
+                onClick={() => setRoomRemovedNotice(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}
+                aria-label="Fechar"
+              >×</button>
+            </div>
+          )}
 
           <div className="selector-grid">
             {/* Card da sala */}
@@ -1169,14 +1520,16 @@ export default function AnotaAIF() {
                   <div className="sc-arrow">→</div>
                 </button>
                 {(sg.role === 'owner' || profile?.is_admin) && (
-                  <button
-                    onClick={e => { e.stopPropagation(); handleDeleteSubgroup(sg) }}
-                    title="Apagar subgrupo"
-                    style={{ position:'absolute', top:8, right:8, background:'rgba(239,68,68,0.1)', border:'none', borderRadius:6,
-                      color:'var(--red)', cursor:'pointer', fontSize:12, padding:'4px 8px', fontWeight:700 }}
-                  >
-                    🗑 Apagar
-                  </button>
+                  <div style={{ position:'absolute', top:8, right:8 }}>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDeleteSubgroup(sg) }}
+                      title="Apagar subgrupo"
+                      style={{ background:'rgba(239,68,68,0.1)', border:'none', borderRadius:6,
+                        color:'var(--red)', cursor:'pointer', fontSize:12, padding:'4px 8px', fontWeight:700 }}
+                    >
+                      🗑
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -1196,15 +1549,20 @@ export default function AnotaAIF() {
               {sgError && <p style={{ color:'var(--red)', fontSize:13, margin:'8px 0 0' }}>{sgError}</p>}
 
               {sgTab === 'create' && (
-                <form onSubmit={handleCreateSubgroup} style={{ display:'flex', gap:8, marginTop:10, flexWrap:'wrap' }}>
-                  <input className="form-input" type="text" maxLength={40}
-                    placeholder="Nome do grupo (ex: Grupo de Física)"
-                    value={sgName} onChange={e => setSgName(e.target.value)} required
-                    style={{ flex:1, minWidth:200 }}/>
-                  <button type="submit" className="btn-submit" disabled={!sgName.trim()||sgLoading} style={{ flexShrink:0 }}>
-                    {sgLoading ? 'Criando…' : 'Criar'}
-                  </button>
-                </form>
+                <>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0', lineHeight: 1.4 }}>
+                    🔒 Este grupo só será visível para você e quem você convidar
+                  </p>
+                  <form onSubmit={handleCreateSubgroup} style={{ display:'flex', gap:8, marginTop:10, flexWrap:'wrap' }}>
+                    <input className="form-input" type="text" maxLength={40}
+                      placeholder="Nome do grupo (ex: Grupo de Física)"
+                      value={sgName} onChange={e => setSgName(e.target.value)} required
+                      style={{ flex:1, minWidth:200 }}/>
+                    <button type="submit" className="btn-submit" disabled={!sgName.trim()||sgLoading} style={{ flexShrink:0 }}>
+                      {sgLoading ? 'Criando…' : 'Criar'}
+                    </button>
+                  </form>
+                </>
               )}
 
               {sgTab === 'join' && (
@@ -1221,6 +1579,42 @@ export default function AnotaAIF() {
             </div>
           )}
         </main>
+
+        {showUpdatePopup && (
+          <div style={{
+            position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 1300, width: 'min(340px, calc(100vw - 32px))',
+            background: 'var(--surface)',
+            border: '2px solid var(--green-border, #86efac)',
+            borderRadius: 18,
+            boxShadow: '0 8px 36px rgba(0,132,61,0.18), 0 2px 8px rgba(0,132,61,0.10)',
+            padding: '18px 16px 18px 18px',
+            display: 'flex', alignItems: 'flex-start', gap: 14,
+            animation: 'nudgePop .35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+              background: 'rgba(0,132,61,0.10)', border: '1.5px solid rgba(0,132,61,0.25)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+            }}>🗓️</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: 'var(--green-primary)', letterSpacing: '-0.1px' }}>
+                Novidade: Múltiplos dias!
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '5px 0 0', lineHeight: 1.55 }}>
+                Agora você pode marcar tarefas com várias datas — ideal para apresentações em dias diferentes. O app sempre mostra o próximo dia mais próximo!
+              </p>
+            </div>
+            <button
+              aria-label="Fechar"
+              onClick={() => {
+                try { localStorage.setItem('update_280426_v1', '1') } catch {}
+                setShowUpdatePopup(false)
+              }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 22, lineHeight: 1, padding: 0, flexShrink: 0, marginTop: 1 }}
+            >×</button>
+          </div>
+        )}
       </div>
     )
   }
@@ -1256,14 +1650,25 @@ export default function AnotaAIF() {
                     👥 Turma
                   </button>
                 )}
-                {viewMode === 'subgroup' && activeSubgroup?.role === 'owner' && (
+                {viewMode === 'subgroup' && (
                   <>
-                    <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.75)', letterSpacing:1.5, background:'rgba(255,255,255,0.15)', borderRadius:6, padding:'2px 8px' }}>
-                      {activeSubgroup.invite_code}
-                    </span>
-                    <button className="btn-turma" onClick={() => copySubgroupInvite(activeSubgroup.invite_code)} title="Copiar link de convite">
-                      🔗 Convidar
+                    <button className="btn-turma" onClick={loadSubgroupMembers} title="Ver participantes do subgrupo">
+                      👥 Grupo
                     </button>
+                    {(activeSubgroup?.role === 'owner' || profile?.is_admin) && (
+                      <button
+                        className="btn-turma"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(activeSubgroup.invite_code)
+                            showSnackbar(`Código copiado: ${activeSubgroup.invite_code}`)
+                          } catch { showSnackbar(activeSubgroup.invite_code) }
+                        }}
+                        title="Copiar código do subgrupo"
+                      >
+                        🔑 {activeSubgroup.invite_code}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -1329,10 +1734,11 @@ export default function AnotaAIF() {
             { id: 'all',       label: 'Todas'      },
             { id: 'prova',     label: 'Provas'     },
             { id: 'atividade', label: 'Atividades' },
+            { id: 'evento',    label: 'Eventos'    },
           ].map(({ id, label }) => (
             <button
               key={id}
-              className={`tab${activeFilter === id ? ' active' : ''}`}
+              className={`tab${activeFilter === id ? ' active' : ''}${id === 'evento' ? ' tab-evento' : ''}`}
               role="tab"
               aria-selected={activeFilter === id}
               onClick={() => setActiveFilter(id)}
@@ -1451,7 +1857,7 @@ export default function AnotaAIF() {
             <strong>{activeSubgroup.name}</strong>
             <span>Você está vendo as tarefas do subgrupo · código: {activeSubgroup.invite_code}</span>
           </div>
-          <button className="notif-banner-btn" onClick={() => setActiveSubgroup(null)}>Sair</button>
+          <button className="notif-banner-btn" onClick={() => { setActiveSubgroup(null); setViewMode(null); setTasks([]) }}>Sair</button>
         </div>
       )}
 
@@ -1481,25 +1887,78 @@ export default function AnotaAIF() {
 
       {/* Main */}
       <main className="main" role="main">
-        {sorted.length === 0 ? (
+
+        {/* ── Seção de Eventos (sempre separada das tarefas) ── */}
+        {events.length > 0 && (
+          <div className="events-section">
+            <div className="events-section-header">
+              <span className="events-section-icon" aria-hidden="true">
+                <svg viewBox="0 0 18 18" fill="none" width="16" height="16">
+                  <rect x="1" y="2" width="16" height="15" rx="2.5" stroke="currentColor" strokeWidth="1.4"/>
+                  <path d="M5 1v2.5M13 1v2.5M1 7h16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                  <circle cx="6" cy="12" r="1.2" fill="currentColor"/>
+                  <circle cx="9" cy="12" r="1.2" fill="currentColor"/>
+                  <circle cx="12" cy="12" r="1.2" fill="currentColor"/>
+                </svg>
+              </span>
+              <span className="events-section-title">Eventos</span>
+              <span className="events-count-badge">{events.length}</span>
+            </div>
+            <div className="events-list">
+              {events.map((ev, i) => (
+                <EventCard
+                  key={ev.id}
+                  task={ev}
+                  delay={Math.min(i * 0.06, 0.25).toFixed(2)}
+                  onEdit={() => openModal(ev)}
+                  canDelete={!!(profile?.is_admin || profile?.is_moderator)}
+                  onDelete={() => handleDeleteTask(ev.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Aba Eventos (sem tarefas): estado vazio ── */}
+        {activeFilter === 'evento' && events.length === 0 && (
           <div className="empty-state" role="status">
             <div className="empty-icon" aria-hidden="true">
               <svg viewBox="0 0 100 100" fill="none">
-                <circle cx="50" cy="50" r="44" fill="#E8F5E9"/>
-                <circle cx="50" cy="50" r="32" fill="#C8E6C9"/>
-                <path d="M35 50l10 10 20-20" stroke="#00843D" strokeWidth="3.5"
-                      strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="50" cy="50" r="44" fill="#FDF4FF"/>
+                <circle cx="50" cy="50" r="32" fill="#F5D0FE"/>
+                <rect x="27" y="28" width="46" height="42" rx="6" stroke="#D946EF" strokeWidth="3"/>
+                <path d="M27 40h46M37 24v8M63 24v8" stroke="#D946EF" strokeWidth="3" strokeLinecap="round"/>
               </svg>
             </div>
-            <h2 className="empty-title">Tudo em dia!</h2>
+            <h2 className="empty-title">Sem eventos</h2>
             <p className="empty-message">
-              Nenhuma pendência por aqui.<br/>Aproveite o momento livre! ✨
+              Nenhum evento programado.<br/>Olimpíadas, feiras e eventos do campus vão aparecer aqui!
             </p>
           </div>
-        ) : (
-          <div className="tasks-list" role="list" aria-live="polite" aria-label="Lista de tarefas">
-            {listItems}
-          </div>
+        )}
+
+        {/* ── Lista de tarefas (oculta na aba Eventos) ── */}
+        {activeFilter !== 'evento' && (
+          sorted.length === 0 ? (
+            <div className="empty-state" role="status">
+              <div className="empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 100 100" fill="none">
+                  <circle cx="50" cy="50" r="44" fill="#E8F5E9"/>
+                  <circle cx="50" cy="50" r="32" fill="#C8E6C9"/>
+                  <path d="M35 50l10 10 20-20" stroke="#00843D" strokeWidth="3.5"
+                        strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <h2 className="empty-title">Tudo em dia!</h2>
+              <p className="empty-message">
+                Nenhuma pendência por aqui.<br/>Aproveite o momento livre! ✨
+              </p>
+            </div>
+          ) : (
+            <div className="tasks-list" role="list" aria-live="polite" aria-label="Lista de tarefas">
+              {listItems}
+            </div>
+          )
         )}
       </main>
 
@@ -1526,7 +1985,13 @@ export default function AnotaAIF() {
 
           <div className="modal-header">
             <h2 className="modal-title" id="modal-title">
-              {isEditing ? 'Editar Tarefa' : (profile?.is_admin || profile?.is_moderator || activeSubgroup) ? (activeSubgroup ? `Nova — ${activeSubgroup.name}` : 'Nova Tarefa') : 'Solicitar Tarefa'}
+              {isEditing
+                ? (editingTask?.type === 'evento' ? 'Editar Evento' : 'Editar Tarefa')
+                : taskType === 'evento'
+                  ? 'Novo Evento'
+                  : (profile?.is_admin || profile?.is_moderator || activeSubgroup)
+                    ? (activeSubgroup ? `Nova — ${activeSubgroup.name}` : 'Nova Tarefa')
+                    : 'Solicitar Tarefa'}
             </h2>
             <button className="modal-close" aria-label="Fechar modal" onClick={closeModal}>
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1564,6 +2029,18 @@ export default function AnotaAIF() {
                       </svg>
                     ),
                   },
+                  {
+                    id: 'evento', label: 'Evento',
+                    icon: (
+                      <svg viewBox="0 0 20 20" fill="none">
+                        <rect x="2" y="3" width="16" height="15" rx="2.5" stroke="currentColor" strokeWidth="1.5"/>
+                        <path d="M6 2v2.5M14 2v2.5M2 8h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        <circle cx="7" cy="13" r="1.3" fill="currentColor"/>
+                        <circle cx="10" cy="13" r="1.3" fill="currentColor"/>
+                        <circle cx="13" cy="13" r="1.3" fill="currentColor"/>
+                      </svg>
+                    ),
+                  },
                 ].map(({ id, label, icon }) => (
                   <label
                     key={id}
@@ -1577,10 +2054,10 @@ export default function AnotaAIF() {
               </div>
             </div>
 
-            {/* Matéria */}
+            {/* Matéria / Nome do Evento */}
             <div className="form-group">
               <label className="form-label" htmlFor="subject-input">
-                Matéria <span className="required" aria-hidden="true">*</span>
+                {taskType === 'evento' ? 'Nome do Evento' : 'Matéria'} <span className="required" aria-hidden="true">*</span>
               </label>
               <div className="subject-wrap">
                 <input
@@ -1588,7 +2065,7 @@ export default function AnotaAIF() {
                   type="text"
                   id="subject-input"
                   className={`form-input${subjectError ? ' error' : ''}`}
-                  placeholder="Ex: Matemática, Redes…"
+                  placeholder={taskType === 'evento' ? 'Ex: Olimpíadas de Química, Semana do IF…' : 'Ex: Matemática, Redes…'}
                   maxLength={60}
                   value={subject}
                   onChange={handleSubjectChange}
@@ -1616,16 +2093,16 @@ export default function AnotaAIF() {
               </span>
             </div>
 
-            {/* Descrição */}
+            {/* Descrição / Detalhes do Evento */}
             <div className="form-group">
               <label className="form-label" htmlFor="desc-input">
-                Descrição <span className="required" aria-hidden="true">*</span>
+                {taskType === 'evento' ? 'Detalhes' : 'Descrição'} <span className="required" aria-hidden="true">*</span>
               </label>
               <textarea
                 id="desc-input"
                 className={`form-textarea${descError ? ' error' : ''}`}
                 rows={3}
-                placeholder="O que precisa ser feito? Capítulos, páginas, detalhes…"
+                placeholder={taskType === 'evento' ? 'Horário, local, como participar…' : 'O que precisa ser feito? Capítulos, páginas, detalhes…'}
                 maxLength={220}
                 value={desc}
                 onChange={(e) => {
@@ -1648,7 +2125,7 @@ export default function AnotaAIF() {
             {/* Data */}
             <div className="form-group">
               <label className="form-label" htmlFor="date-input">
-                Data de Entrega <span className="required" aria-hidden="true">*</span>
+                {taskType === 'evento' ? 'Data do Evento' : 'Data de Entrega'} <span className="required" aria-hidden="true">*</span>
               </label>
               <input
                 type="date"
@@ -1668,17 +2145,108 @@ export default function AnotaAIF() {
               </span>
             </div>
 
+            {/* Múltiplos dias */}
+            {taskType !== 'evento' && hasExtraDates && (
+              <div className="form-group multiday-group">
+                <label className="multiday-toggle" onClick={() => { setIsMultiDay(v => !v); if (isMultiDay) setExtraDates([]) }}>
+                  <span className={`multiday-toggle-track${isMultiDay ? ' on' : ''}`}>
+                    <span className="multiday-toggle-thumb" />
+                  </span>
+                  <span className="multiday-toggle-label">
+                    📅 Múltiplos dias
+                    <span className="multiday-toggle-hint">Ex: apresentações em datas diferentes</span>
+                  </span>
+                </label>
+                {isMultiDay && (
+                  <div className="multiday-dates-list">
+                    <div className="multiday-dates-title">Datas adicionais:</div>
+                    {extraDates.map((d, i) => (
+                      <div key={i} className="multiday-date-row">
+                        <input
+                          type="date"
+                          className="form-input form-input--date multiday-date-input"
+                          value={d}
+                          min={getTodayString()}
+                          onChange={e => {
+                            const nd = [...extraDates]
+                            nd[i] = e.target.value
+                            setExtraDates(nd)
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="multiday-date-remove"
+                          onClick={() => setExtraDates(extraDates.filter((_, j) => j !== i))}
+                          aria-label="Remover data"
+                        >×</button>
+                      </div>
+                    ))}
+                    {extraDates.length < 5 && (
+                      <button
+                        type="button"
+                        className="multiday-add-btn"
+                        onClick={() => setExtraDates([...extraDates, ''])}
+                      >
+                        + Adicionar data
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Material (opcional) */}
             <div className="form-group">
-              <label className="form-label" htmlFor="material-input">Link de material <span style={{ opacity: 0.5, fontWeight: 400 }}>(opcional)</span></label>
+              <label className="form-label" htmlFor="material-input">
+                {taskType === 'evento' ? 'Link ou arquivo do evento' : 'Link ou arquivo de material'} <span style={{ opacity: 0.5, fontWeight: 400 }}>(opcional)</span>
+              </label>
               <input
                 id="material-input"
                 type="url"
                 className="form-input"
-                placeholder="Ex: drive.google.com/… ou classroom.google.com/…"
-                value={materialUrl}
-                onChange={e => setMaterialUrl(e.target.value)}
+                placeholder={taskType === 'evento' ? 'Ex: instagram.com/… ou formulário de inscrição' : 'Ex: drive.google.com/… ou classroom.google.com/…'}
+                value={uploadedFileName ? '' : materialUrl}
+                disabled={!!uploadedFileName || uploadingFile}
+                onChange={e => { setMaterialUrl(e.target.value); setUploadedFileName('') }}
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.webp"
+                onChange={e => handleFileUpload(e.target.files?.[0])}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  className="btn-upload-file"
+                  disabled={uploadingFile}
+                  onClick={() => { if (!uploadingFile) fileInputRef.current?.click() }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 12px', borderRadius: 8, border: '1.5px dashed #aaa',
+                    background: 'transparent', cursor: uploadingFile ? 'not-allowed' : 'pointer',
+                    fontSize: 13, color: '#555', fontWeight: 500,
+                  }}
+                >
+                  {uploadingFile ? (
+                    <>⏳ Enviando…</>
+                  ) : (
+                    <>📁 Enviar arquivo</>
+                  )}
+                </button>
+                {uploadedFileName && (
+                  <span style={{ fontSize: 13, color: '#22a355', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    ✓ {uploadedFileName}
+                    <button
+                      type="button"
+                      onClick={() => { setMaterialUrl(''); setUploadedFileName(''); if (fileInputRef.current) fileInputRef.current.value = '' }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e53', fontSize: 15, padding: '0 2px', lineHeight: 1 }}
+                      title="Remover arquivo"
+                    >×</button>
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Ações */}
@@ -1692,7 +2260,9 @@ export default function AnotaAIF() {
                 </svg>
                 {isEditing
                   ? 'Salvar Alterações'
-                  : taskType === 'prova' ? 'Enviar Prova' : 'Enviar Tarefa'}
+                  : taskType === 'prova' ? 'Enviar Prova'
+                  : taskType === 'evento' ? 'Criar Evento'
+                  : 'Enviar Tarefa'}
               </button>
             </div>
           </form>
@@ -1751,14 +2321,16 @@ export default function AnotaAIF() {
         </div>
       )}
 
-      {/* Modal: colegas da turma */}
+      {/* Modal: colegas / participantes */}
       {showMembers && (
-        <div className="modal-overlay open" role="dialog" aria-modal="true" onClick={e => { if (e.target === e.currentTarget) setShowMembers(false) }}>
+        <div className="modal-overlay open" role="dialog" aria-modal="true" onClick={e => { if (e.target === e.currentTarget) setShowMembers(null) }}>
           <div className="modal-sheet">
             <div className="modal-handle" aria-hidden="true"/>
             <div className="modal-header">
-              <h2 className="modal-title">👥 Colegas da turma</h2>
-              <button className="modal-close" onClick={() => setShowMembers(false)} aria-label="Fechar">
+              <h2 className="modal-title">
+                {showMembers === 'subgroup' ? `👥 ${activeSubgroup?.name}` : '👥 Colegas da turma'}
+              </h2>
+              <button className="modal-close" onClick={() => setShowMembers(null)} aria-label="Fechar">
                 <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
               </button>
             </div>
@@ -1769,12 +2341,17 @@ export default function AnotaAIF() {
                     {m.full_name?.[0]?.toUpperCase() ?? '?'}
                   </div>
                   <div>
-                    <p style={{ fontSize:14, fontWeight:600, margin:0 }}>{m.full_name}</p>
+                    <p style={{ fontSize:14, fontWeight:600, margin:0 }}>
+                      {m.full_name}
+                      {showMembers === 'subgroup' && m.role === 'owner' && (
+                        <span style={{ marginLeft:6, fontSize:10, fontWeight:700, color:'#00843D', background:'#E8F5E9', borderRadius:4, padding:'1px 5px' }}>dono</span>
+                      )}
+                    </p>
                     <p style={{ fontSize:12, opacity:0.6, margin:0 }}>{m.ano_turma} · {m.curso}</p>
                   </div>
                 </li>
               ))}
-              {members.length === 0 && <li style={{ fontSize:13, opacity:0.5, padding:'12px 0' }}>Nenhum colega encontrado.</li>}
+              {members.length === 0 && <li style={{ fontSize:13, opacity:0.5, padding:'12px 0' }}>Nenhum participante encontrado.</li>}
             </ul>
           </div>
         </div>
@@ -1850,6 +2427,148 @@ export default function AnotaAIF() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Popup de atualização 28/04/2026 */}
+      {showUpdatePopup && (
+        <div style={{
+          position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 1300, width: 'min(340px, calc(100vw - 32px))',
+          background: 'var(--surface)',
+          border: '2px solid var(--green-border, #86efac)',
+          borderRadius: 18,
+          boxShadow: '0 8px 36px rgba(0,132,61,0.18), 0 2px 8px rgba(0,132,61,0.10)',
+          padding: '18px 16px 18px 18px',
+          display: 'flex', alignItems: 'flex-start', gap: 14,
+          animation: 'nudgePop .35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+            background: 'rgba(0,132,61,0.10)', border: '1.5px solid rgba(0,132,61,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+          }}>
+            🗓️
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: 'var(--green-primary)', letterSpacing: '-0.1px' }}>
+              Novidade: Múltiplos dias!
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '5px 0 0', lineHeight: 1.55 }}>
+              Agora você pode marcar tarefas com várias datas — ideal para apresentações em dias diferentes. O app sempre mostra o próximo dia mais próximo!
+            </p>
+          </div>
+          <button
+            aria-label="Fechar"
+            onClick={() => {
+              try { localStorage.setItem('update_280426_v1', '1') } catch {}
+              setShowUpdatePopup(false)
+            }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text-muted)', fontSize: 22, lineHeight: 1,
+              padding: 0, flexShrink: 0, marginTop: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Popup de novidade: Eventos */}
+      {showEventsPopup && (
+        <div style={{
+          position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 1300, width: 'min(340px, calc(100vw - 32px))',
+          background: 'var(--surface)',
+          border: '2px solid var(--magenta-border)',
+          borderRadius: 18,
+          boxShadow: '0 8px 36px rgba(217,70,239,0.22), 0 2px 8px rgba(217,70,239,0.10)',
+          padding: '18px 16px 18px 18px',
+          display: 'flex', alignItems: 'flex-start', gap: 14,
+          animation: 'nudgePop .35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}>
+          {/* Ícone */}
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+            background: 'var(--magenta-pale)', border: '1.5px solid var(--magenta-border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg viewBox="0 0 22 22" fill="none" width="22" height="22">
+              <rect x="1" y="2.5" width="20" height="18" rx="3.5" stroke="var(--magenta)" strokeWidth="1.6"/>
+              <path d="M6 1.5v3M16 1.5v3M1 8.5h20" stroke="var(--magenta)" strokeWidth="1.6" strokeLinecap="round"/>
+              <circle cx="8" cy="14" r="1.5" fill="var(--magenta)"/>
+              <circle cx="11" cy="14" r="1.5" fill="var(--magenta)"/>
+              <circle cx="14" cy="14" r="1.5" fill="var(--magenta)"/>
+            </svg>
+          </div>
+
+          {/* Texto */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: 'var(--magenta-mid)', letterSpacing: '-0.1px' }}>
+              Novidade: Seção de Eventos! 🎉
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '5px 0 0', lineHeight: 1.55 }}>
+              Olimpíadas, feiras e eventos do campus agora ficam numa seção separada — em magenta, sem misturar com as atividades. Clique em <strong style={{ color: 'var(--magenta-mid)' }}>Eventos</strong> no menu!
+            </p>
+          </div>
+
+          {/* X */}
+          <button
+            aria-label="Fechar"
+            onClick={() => {
+              try { localStorage.setItem('events_popup_v1', '1') } catch {}
+              setShowEventsPopup(false)
+            }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text-muted)', fontSize: 22, lineHeight: 1,
+              padding: 0, flexShrink: 0, marginTop: 1,
+              transition: 'color 0.15s',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Nudge: aviso sobre a aba de feedback */}
+      {feedbackNudge && !feedbackOpen && (
+        <div style={{
+          position: 'fixed', bottom: 80, right: 16, zIndex: 1200,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 14, boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+          padding: '14px 16px 14px 18px', maxWidth: 280,
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          animation: 'nudgePop .3s ease',
+        }}>
+          <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>💬</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontWeight: 700, fontSize: 13, margin: 0, color: 'var(--text-primary)' }}>Deixe seu feedback!</p>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 10px', lineHeight: 1.4 }}>
+              Tem sugestões ou encontrou algum problema? Clique em <strong>Feedback</strong> no menu e nos conta!
+            </p>
+            <button
+              onClick={() => {
+                try { localStorage.setItem('feedback_nudge_dismissed', '1') } catch {}
+                setFeedbackNudge(false)
+                setFeedbackOpen(true)
+              }}
+              style={{ fontSize: 12, fontWeight: 700, color: 'var(--green-primary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+            >
+              Abrir feedback
+            </button>
+          </div>
+          <button
+            aria-label="Fechar"
+            onClick={() => {
+              try { localStorage.setItem('feedback_nudge_dismissed', '1') } catch {}
+              setFeedbackNudge(false)
+            }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}
+          >
+            ×
+          </button>
         </div>
       )}
 
