@@ -277,20 +277,22 @@ export default function AdminPage() {
 
       <main className="admin-main">
         {activeTab === 'overview' && (
-        <button
-          className="admin-btn admin-btn-active"
-          style={{ marginBottom: 8, width: '100%', padding: '10px', fontSize: 13 }}
-          onClick={testPush}
-        >
-          🔔 Testar notificação push (sala A8Y9Z6PW)
-        </button>
-        <button
-          className="admin-btn"
-          style={{ marginBottom: 12, width: '100%', padding: '10px', fontSize: 13, background: '#00843D', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
-          onClick={sendUpdateNotification}
-        >
-          📣 Enviar notificação de atualização (todas as salas)
-        </button>
+          <>
+            <button
+              className="admin-btn admin-btn-active"
+              style={{ marginBottom: 8, width: '100%', padding: '10px', fontSize: 13 }}
+              onClick={testPush}
+            >
+              🔔 Testar notificação push (sala A8Y9Z6PW)
+            </button>
+            <button
+              className="admin-btn"
+              style={{ marginBottom: 12, width: '100%', padding: '10px', fontSize: 13, background: '#00843D', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
+              onClick={sendUpdateNotification}
+            >
+              📣 Enviar notificação de atualização (todas as salas)
+            </button>
+          </>
         )}
 
         {activeTab === 'overview' && <>
