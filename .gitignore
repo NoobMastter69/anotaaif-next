@@ -49,3 +49,6 @@ public/icons/logo-white.png
 next-env.d.ts
 
 .vercel
+
+.vercel
+.env*.local

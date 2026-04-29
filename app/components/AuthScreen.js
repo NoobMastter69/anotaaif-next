@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 // Gerador de e-mail interno (usado pelo Supabase Auth)
@@ -34,6 +34,16 @@ const ANO_TURMA_OPTIONS = [
   'Outro',
 ]
 
+async function logSignIn(userId, fullName) {
+  try {
+    await fetch('/api/log-signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, fullName }),
+    })
+  } catch {}
+}
+
 export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('login')
 
@@ -50,9 +60,13 @@ export default function AuthScreen({ onAuth }) {
   const [classCode, setClassCode]             = useState('')
   const [joiningRoom, setJoiningRoom]         = useState(null) // { ano_turma, curso } da sala encontrada
 
-  const [error, setError]     = useState('')
-  const [loading, setLoading] = useState(false)
-  const [newRoomCode, setNewRoomCode] = useState('')
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [newRoomCode, setNewRoomCode]                   = useState('')
+  const [forgotMode, setForgotMode] = useState(false)
+  const [resetEmail, setResetEmail]                     = useState('')
+  const [resetSent, setResetSent]                       = useState(false)
+  const resetInFlight = useRef(false)
 
   // Lê ?join=CODE da URL e pré-preenche o código de sala
   useEffect(() => {
@@ -65,12 +79,14 @@ export default function AuthScreen({ onAuth }) {
     }
   }, [])
 
-  // Quando usuário digita um código, verifica se sala existe
+  // Quando usuário digita um código, verifica se sala existe (via API server-side)
   useEffect(() => {
     if (!classCode.trim() || classCode.trim().length < 4) { setJoiningRoom(null); return }
     const code = classCode.trim().toUpperCase()
-    supabase.from('rooms').select('ano_turma, curso, campus').eq('class_code', code).maybeSingle()
-      .then(({ data }) => setJoiningRoom(data ?? null))
+    fetch(`/api/check-room?code=${encodeURIComponent(code)}`)
+      .then(r => r.json())
+      .then(({ room }) => setJoiningRoom(room ?? null))
+      .catch(() => setJoiningRoom(null))
   }, [classCode])
 
   function switchMode(m) {
@@ -78,6 +94,33 @@ export default function AuthScreen({ onAuth }) {
     setError('')
     setPassword('')
     setConfirmPassword('')
+    setForgotMode(false)
+    setResetSent(false)
+  }
+
+  async function handleForgotPassword(e) {
+    e.preventDefault()
+    if (resetInFlight.current) return
+    const email = resetEmail.trim()
+    if (!email) return
+    resetInFlight.current = true
+    setLoading(true)
+    try {
+      await fetch('/api/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          origin: typeof window !== 'undefined' ? window.location.origin : 'https://anotaaif-next.vercel.app',
+        }),
+      })
+      setResetSent(true)
+    } catch {
+      setError('Não foi possível enviar o e-mail. Tente novamente.')
+      resetInFlight.current = false
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ── Validações ────────────────────────────────────────
@@ -113,6 +156,12 @@ export default function AuthScreen({ onAuth }) {
         setError('Digite um e-mail válido para receber notificações.')
         return false
       }
+      const disposableDomains = ['mailinator.com','guerrillamail.com','tempmail.com','temp-mail.org','throwam.com','sharklasers.com','guerrillamailblock.com','grr.la','guerrillamail.info','guerrillamail.biz','guerrillamail.de','guerrillamail.net','guerrillamail.org','spam4.me','yopmail.com','yopmail.fr','cool.fr.nf','jetable.fr.nf','nospam.ze.tc','nomail.xl.cx','mega.zik.dj','speed.1s.fr','courriel.fr.nf','moncourrier.fr.nf','monemail.fr.nf','monmail.fr.nf','trashmail.at','trashmail.com','trashmail.io','trashmail.me','trashmail.net','discard.email','discardmail.com','discardmail.de','spamgourmet.com','spamgourmet.net','spamgourmet.org','mailnull.com','spamcorptastic.com','spamday.com','spamdecoy.net','spamfree24.de','spamfree24.eu','spamfree24.info','spamfree24.net','spamfree24.org','spamgoes.in','spamhereplease.com','spamhole.com','spamify.com','spaminator.de','spamoff.de','maildrop.cc','mailnesia.com','mailnull.com','spamfighter.cf','spamfighter.ga','spamfighter.gq','spamfighter.ml','spamfighter.tk','10minutemail.com','10minutemail.net','10minemail.com','20minutemail.com','mohmal.com','mintemail.com','nyspring.com','sharklasers.com','getairmail.com','filzmail.com','throwam.com','fakemail.net','fakeinbox.com','fakeinbox.org','spambox.us','mailexpire.com','dispostable.com','crapmail.org']
+      const emailDomain = contactEmail.trim().split('@')[1]?.toLowerCase()
+      if (disposableDomains.includes(emailDomain)) {
+        setError('Use um e-mail real (Gmail, Hotmail, escolar, etc.). Emails temporários não são permitidos.')
+        return false
+      }
     }
     return true
   }
@@ -123,52 +172,50 @@ export default function AuthScreen({ onAuth }) {
     if (!validate()) return
 
     setLoading(true)
-    const email = nameToEmail(name.trim())
 
-    // Resolve o código da sala
+    // Login: aceita nome OU email real (compatibilidade com contas antigas)
+    // Cadastro: usa o email real digitado
+    const authEmail = mode === 'register'
+      ? contactEmail.trim()
+      : (name.trim().includes('@') ? name.trim() : nameToEmail(name.trim()))
+
+    // Resolve o código da sala via API server-side (evita 401 por RLS anon)
     let code = ''
     let isNewRoom = false
 
-    if (classCode.trim()) {
-      // Usuário informou um código — verifica se existe
-      code = classCode.trim().toUpperCase()
-      const { data: existingRoom } = await supabase.from('rooms').select('class_code').eq('class_code', code).maybeSingle()
-      if (!existingRoom) {
-        setError('Código de sala não encontrado. Verifique com quem te convidou.')
-        setLoading(false)
-        return
-      }
-    } else {
-      // Sem código: tenta encontrar sala existente para (campus, curso, ano_turma)
-      const { data: existingRoom } = await supabase.from('rooms')
-        .select('class_code')
-        .eq('campus', campus)
-        .eq('curso', curso)
-        .eq('ano_turma', anoTurma)
-        .maybeSingle()
+    try {
+      const res = await fetch('/api/check-room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          classCode.trim()
+            ? { class_code: classCode.trim().toUpperCase() }
+            : { campus, curso, ano_turma: anoTurma }
+        ),
+      })
+      const result = await res.json()
 
-      if (existingRoom) {
-        // Sala já existe — entra nela
-        code = existingRoom.class_code
-        isNewRoom = false
-      } else {
-        // Cria nova sala — o aluno vira admin da sala
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-        code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-        const { error: roomErr } = await supabase.from('rooms').insert({ class_code: code, campus, curso, ano_turma: anoTurma })
-        if (roomErr) {
-          // Race condition: outra pessoa criou agora — busca novamente
-          const { data: raceRoom } = await supabase.from('rooms').select('class_code').eq('campus', campus).eq('curso', curso).eq('ano_turma', anoTurma).maybeSingle()
-          code = raceRoom?.class_code ?? code
+      if (classCode.trim()) {
+        if (!result.room) {
+          setError('Código de sala não encontrado. Verifique com quem te convidou.')
+          setLoading(false)
+          return
         }
-        isNewRoom = true
+        code = result.room.class_code
+      } else {
+        code = result.room?.class_code ?? ''
+        isNewRoom = !!result.isNew
       }
+    } catch {
+      setError('Erro ao verificar sala. Tente novamente.')
+      setLoading(false)
+      return
     }
 
     try {
       if (mode === 'register') {
         const { data, error: err } = await supabase.auth.signUp({
-          email,
+          email: authEmail,
           password,
           options: { data: { full_name: name.trim() } },
         })
@@ -176,7 +223,7 @@ export default function AuthScreen({ onAuth }) {
 
         let activeUser = data.user
         if (!data.session) {
-          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email: authEmail, password })
           if (signInErr) throw signInErr
           activeUser = signInData.user
         }
@@ -184,12 +231,13 @@ export default function AuthScreen({ onAuth }) {
         const { error: profileErr } = await supabase.from('profiles').insert({
           id:            activeUser.id,
           full_name:     name.trim(),
-          contact_email: contactEmail.trim() || null,
+          contact_email: authEmail,
           campus,
           curso,
           ano_turma:     anoTurma,
           class_code:    code,
-          is_admin:      isNewRoom,
+          is_moderator:  isNewRoom,
+          is_admin:      false,
         })
         if (profileErr) throw profileErr
 
@@ -200,20 +248,48 @@ export default function AuthScreen({ onAuth }) {
         }
 
         const displayName = activeUser?.user_metadata?.full_name ?? name.trim()
+        await logSignIn(activeUser.id, displayName)
         onAuth(activeUser, displayName)
       } else {
-        const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
-        if (err) throw err
-        const displayName = data.user?.user_metadata?.full_name ?? name.trim()
-        onAuth(data.user, displayName)
+        // Tenta login com nameToEmail primeiro; se falhar, busca o email real do perfil
+        let loginData = null
+        const { data: d1, error: e1 } = await supabase.auth.signInWithPassword({ email: authEmail, password })
+        if (e1 && !name.trim().includes('@')) {
+          // Fallback: busca o contact_email real pelo nome (suporta emails institucionais)
+          try {
+            const res = await fetch('/api/resolve-login-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fullName: name.trim() }),
+            })
+            const { email: realEmail } = await res.json()
+            if (realEmail && realEmail !== authEmail) {
+              const { data: d2, error: e2 } = await supabase.auth.signInWithPassword({ email: realEmail, password })
+              if (e2) throw e2
+              loginData = d2
+            } else {
+              throw e1
+            }
+          } catch (lookupErr) {
+            throw lookupErr?.message ? lookupErr : e1
+          }
+        } else {
+          if (e1) throw e1
+          loginData = d1
+        }
+        const displayName = loginData.user?.user_metadata?.full_name ?? name.trim()
+        await logSignIn(loginData.user.id, displayName)
+        onAuth(loginData.user, displayName)
       }
     } catch (err) {
       console.error('Auth error:', err)
       const msg = err.message ?? ''
       if (msg.includes('Invalid login') || msg.includes('invalid_credentials')) {
-        setError('Nome ou senha incorretos.')
-      } else if (msg.includes('already registered') || msg.includes('already been registered')) {
-        setError('Esse nome já está cadastrado. Clique em "Entrar".')
+        setError('E-mail/nome ou senha incorretos.')
+      } else if (msg.includes('already registered') || msg.includes('already been registered') || msg.includes('duplicate key') || msg.includes('unique constraint')) {
+        setError('Este e-mail já está cadastrado. Clique em "Entrar".')
+      } else if (msg.includes('not confirmed') || msg.includes('Email not confirmed')) {
+        setError('Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.')
       } else {
         setError(msg || 'Algo deu errado. Tente novamente.')
       }
@@ -283,12 +359,14 @@ export default function AuthScreen({ onAuth }) {
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
 
           <div className="auth-field">
-            <label htmlFor="auth-name">Nome completo</label>
+            <label htmlFor="auth-name">
+              {mode === 'login' ? 'Nome completo ou E-mail' : 'Nome completo'}
+            </label>
             <input
               id="auth-name" type="text"
-              placeholder="Ex: Ed Carlos Xavier"
+              placeholder={mode === 'login' ? 'Ex: Ed Carlos Xavier ou ed@gmail.com' : 'Ex: Ed Carlos Xavier'}
               value={name} onChange={e => setName(e.target.value)}
-              autoComplete="name" autoFocus disabled={loading}
+              autoComplete={mode === 'login' ? 'username email' : 'name'} autoFocus disabled={loading}
             />
           </div>
 
@@ -325,7 +403,7 @@ export default function AuthScreen({ onAuth }) {
                   value={contactEmail} onChange={e => setContactEmail(e.target.value)}
                   autoComplete="email" disabled={loading}
                 />
-                <span className="auth-hint">Usado para cadastrar(futuramente notificações de tarefas)</span>
+                <span className="auth-hint">Usado para confirmar sua conta e receber notificações</span>
               </div>
 
               <div className="auth-row-2">
@@ -402,15 +480,15 @@ export default function AuthScreen({ onAuth }) {
               <p className="auth-new-room-title">✓ Conta criada! Sua sala foi gerada.</p>
               <p className="auth-new-room-label">Código da turma:</p>
               <div className="auth-new-room-code">{newRoomCode}</div>
-              <p className="auth-new-room-hint">Compartilhe com sua turma. Você é o admin da sala.</p>
+              <p className="auth-new-room-hint">Compartilhe com sua turma. Você é o moderador da sala.</p>
               <button
                 type="button"
                 className="auth-submit"
                 onClick={() => {
-                  const email = nameToEmail(name.trim())
-                  supabase.auth.signInWithPassword({ email, password }).then(({ data }) => {
+                  supabase.auth.signInWithPassword({ email: contactEmail.trim(), password }).then(async ({ data }) => {
                     if (data?.user) {
                       const displayName = data.user?.user_metadata?.full_name ?? name.trim()
+                      await logSignIn(data.user.id, displayName)
                       onAuth(data.user, displayName)
                     }
                   })
@@ -419,15 +497,68 @@ export default function AuthScreen({ onAuth }) {
                 Entrar no App →
               </button>
             </div>
+          ) : forgotMode ? (
+            /* ── Tela de esqueci a senha ── */
+            <div>
+              {resetSent ? (
+                <div className="auth-new-room">
+                  <p className="auth-new-room-title">📧 Link enviado!</p>
+                  <p className="auth-new-room-hint">Verifique sua caixa de entrada (e o spam). Clique no link para redefinir a senha.</p>
+                  <button type="button" className="auth-submit" onClick={() => { setForgotMode(false); setResetSent(false) }}>
+                    Voltar ao login →
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="auth-field" style={{ marginTop: 8 }}>
+                    <label htmlFor="reset-email">Seu e-mail cadastrado</label>
+                    <input
+                      id="reset-email" type="email"
+                      placeholder="Ex: joao@gmail.com"
+                      value={resetEmail} onChange={e => setResetEmail(e.target.value)}
+                      autoComplete="email" autoFocus disabled={loading}
+                    />
+                  </div>
+                  {error && <p className="auth-error" role="alert">{error}</p>}
+                  <button
+                    type="button"
+                    className="auth-submit"
+                    disabled={loading || !resetEmail.trim()}
+                    style={{ minHeight: 48, marginTop: 12 }}
+                    onClick={handleForgotPassword}
+                  >
+                    {loading ? 'Enviando…' : 'Enviar link de redefinição'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotMode(false); setError('') }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', marginTop: 8, width: '100%' }}
+                  >
+                    ← Voltar
+                  </button>
+                </>
+              )}
+            </div>
           ) : (
-            <button 
-              type="submit" 
-              className="auth-submit" 
-              disabled={loading}
-              style={{ whiteSpace: 'nowrap', minHeight: '48px', marginTop: '15px' }}
-            >
-              {loading ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
-            </button>
+            <>
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={loading}
+                style={{ whiteSpace: 'nowrap', minHeight: '48px', marginTop: '15px' }}
+              >
+                {loading ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
+              </button>
+              {mode === 'login' && (
+                <button
+                  type="button"
+                  onClick={() => { setForgotMode(true); setError(''); setResetEmail('') }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', marginTop: 10, width: '100%' }}
+                >
+                  Esqueceu sua senha?
+                </button>
+              )}
+            </>
           )}
         </form>
         </div>

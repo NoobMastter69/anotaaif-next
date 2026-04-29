@@ -1,4 +1,4 @@
-// Rota chamada pelo Vercel Cron todo dia às 11h UTC (8h Brasília)
+// Rota chamada pelo Vercel Cron todo dia às 9h UTC (6h Brasília)
 export async function GET(req) {
   const authHeader = req.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {

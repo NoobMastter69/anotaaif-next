@@ -15,20 +15,22 @@ export default function AdminPage() {
   const [expandedRoom, setExpandedRoom] = useState(null)
   const [roomTasks, setRoomTasks]     = useState({})
   const [copiedInvite, setCopiedInvite] = useState(null)
-  const [activeTab, setActiveTab]     = useState('overview')  // 'overview' | 'feedback' | 'logs' | 'subgroups'
+  const [loginLogs, setLoginLogs]     = useState([])
+  const [activeTab, setActiveTab]     = useState('overview')  // 'overview' | 'feedback' | 'logs' | 'subgroups' | 'ips'
   const [loading, setLoading]         = useState(true)
   const [search, setSearch]           = useState('')
   const [flash, setFlash]             = useState('')
   const [authError, setAuthError]     = useState('')
 
   async function loadProfiles() {
-    const [{ data, error }, { data: sug }, { data: rms }, { data: fbs }, { data: logs }, { data: sgs }] = await Promise.all([
+    const [{ data, error }, { data: sug }, { data: rms }, { data: fbs }, { data: logs }, { data: sgs }, { data: ips }] = await Promise.all([
       supabase.from('profiles').select('id, full_name, campus, curso, ano_turma, class_code, is_admin, is_moderator, kick_requested, created_at').order('campus'),
       supabase.from('task_suggestions').select('*').eq('status', 'pending').order('created_at'),
       supabase.from('rooms').select('*').order('campus'),
       supabase.from('feedback').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
       supabase.from('subgroups').select('*, subgroup_members(count)').order('created_at', { ascending: false }),
+      supabase.from('login_logs').select('*').order('created_at', { ascending: false }).limit(200),
     ])
     if (error) setAuthError('Erro ao carregar perfis: ' + error.message)
     setProfiles(data ?? [])
@@ -37,6 +39,7 @@ export default function AdminPage() {
     setFeedbacks(fbs ?? [])
     setAuditLogs(logs ?? [])
     setSubgroups(sgs ?? [])
+    setLoginLogs(ips ?? [])
   }
 
   useEffect(() => {
@@ -100,6 +103,26 @@ export default function AdminPage() {
     showFlash(data.log?.[0] ?? 'Enviado! Verifique o celular.')
   }
 
+  async function sendUpdateNotification() {
+    if (!confirm('Enviar notificação de atualização para todos os alunos?')) return
+    showFlash('Enviando…')
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/notify-update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify({
+        title: '🗓️ Novidade no Anota AIF!',
+        body: 'Agora você pode marcar tarefas com múltiplas datas — perfeito para apresentações em dias diferentes!',
+        url: 'https://anotaaif-next.vercel.app',
+      }),
+    })
+    const data = await res.json()
+    showFlash(data.ok ? `Notificação enviada para ${data.sent}/${data.total} salas ✓` : `Erro: ${data.error}`)
+  }
+
   async function approveSuggestion(sug) {
     const id = 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
     await supabase.from('tasks').insert({
@@ -127,6 +150,22 @@ export default function AdminPage() {
     } catch {
       showFlash(link)
     }
+  }
+
+  async function deleteRoom(code) {
+    const count = profiles.filter(p => p.class_code === code).length
+    const warn = count > 0
+      ? `\n\n⚠️ ${count} aluno(s) serão removidos da sala e verão um aviso.`
+      : ''
+    if (!confirm(`Apagar sala "${code}"?${warn}`)) return
+    const { error } = await supabase.from('rooms').delete().eq('class_code', code)
+    if (error) { showFlash('Erro: ' + error.message); return }
+    // Remove alunos da sala — eles verão "Sua sala foi removida" no próximo acesso
+    if (count > 0) {
+      await supabase.from('profiles').update({ class_code: null }).eq('class_code', code)
+    }
+    setRooms(prev => prev.filter(r => r.class_code !== code))
+    showFlash(`Sala "${code}" apagada e ${count} aluno(s) removidos ✓`)
   }
 
   async function toggleRoomTasks(code) {
@@ -226,6 +265,7 @@ export default function AdminPage() {
           { id:'feedback', label:`💬 Feedback${feedbacks.length ? ` (${feedbacks.length})` : ''}` },
           { id:'logs',     label:'📋 Registros' },
           { id:'subgroups',label:`🔵 Subgrupos${subgroups.length ? ` (${subgroups.length})` : ''}` },
+          { id:'ips',      label:`🌐 IPs${loginLogs.length ? ` (${loginLogs.length})` : ''}` },
         ].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             style={{ whiteSpace:'nowrap', padding:'7px 14px', borderRadius:8, border:'none', cursor:'pointer', fontSize:13, fontWeight:600,
@@ -239,10 +279,17 @@ export default function AdminPage() {
         {activeTab === 'overview' && (
         <button
           className="admin-btn admin-btn-active"
-          style={{ marginBottom: 12, width: '100%', padding: '10px', fontSize: 13 }}
+          style={{ marginBottom: 8, width: '100%', padding: '10px', fontSize: 13 }}
           onClick={testPush}
         >
           🔔 Testar notificação push (sala A8Y9Z6PW)
+        </button>
+        <button
+          className="admin-btn"
+          style={{ marginBottom: 12, width: '100%', padding: '10px', fontSize: 13, background: '#00843D', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
+          onClick={sendUpdateNotification}
+        >
+          📣 Enviar notificação de atualização (todas as salas)
         </button>
         )}
 
@@ -278,13 +325,21 @@ export default function AdminPage() {
                         <td style={{ padding: '6px 8px' }}>{r.ano_turma} · {r.curso}</td>
                         <td style={{ padding: '6px 8px', opacity: 0.7 }}>{r.campus?.replace('IFSP – ', '')}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'center' }}>{count}</td>
-                        <td style={{ padding: '6px 8px' }}>
+                        <td style={{ padding: '6px 8px', display: 'flex', gap: 4 }}>
                           <button
                             className="admin-btn"
                             style={{ fontSize: 11, padding: '2px 8px' }}
                             onClick={() => copyInvite(r.class_code)}
                           >
                             {copiedInvite === r.class_code ? '✓' : '🔗'}
+                          </button>
+                          <button
+                            className="admin-btn admin-btn-danger"
+                            style={{ fontSize: 11, padding: '2px 8px' }}
+                            onClick={() => deleteRoom(r.class_code)}
+                            title="Apagar sala"
+                          >
+                            🗑
                           </button>
                         </td>
                       </tr>
@@ -593,6 +648,44 @@ export default function AdminPage() {
                             >
                               Apagar
                             </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+            }
+          </section>
+        )}
+        {/* ── Aba: IPs / Login Logs ── */}
+        {activeTab === 'ips' && (
+          <section className="admin-campus-section">
+            <h2 className="admin-campus-title">🌐 Logs de acesso (IP) <span className="admin-campus-count">{loginLogs.length}</span></h2>
+            {loginLogs.length === 0
+              ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum login registrado ainda.</p>
+              : <div className="admin-turma">
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid #eee', textAlign:'left', opacity:0.6 }}>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Quando</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Usuário</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>IP</th>
+                        <th style={{ padding:'6px 8px', fontWeight:600 }}>Dispositivo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loginLogs.map(log => (
+                        <tr key={log.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
+                          <td style={{ padding:'5px 8px', whiteSpace:'nowrap', opacity:0.6 }}>
+                            {new Date(log.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' })}{' '}
+                            {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
+                          </td>
+                          <td style={{ padding:'5px 8px', fontWeight:600 }}>{log.full_name ?? '—'}</td>
+                          <td style={{ padding:'5px 8px' }}>
+                            <code style={{ background:'#f0f0f0', padding:'2px 6px', borderRadius:4 }}>{log.ip ?? '—'}</code>
+                          </td>
+                          <td style={{ padding:'5px 8px', opacity:0.6, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {log.user_agent ? log.user_agent.replace(/\s*\(.*?\)\s*/g, ' ').trim().slice(0, 60) : '—'}
                           </td>
                         </tr>
                       ))}

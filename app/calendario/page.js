@@ -68,14 +68,17 @@ export default function CalendarioPage() {
   const router  = useRouter()
   const today   = new Date()
 
-  // Calendário restrito a 2026
-  const initMonth = today.getFullYear() === 2026 ? today.getMonth() : 0
-  const [year,  setYear]  = useState(2026)
-  const [month, setMonth] = useState(initMonth)
+  const [year,  setYear]  = useState(today.getFullYear())
+  const [month, setMonth] = useState(today.getMonth())
   const [selectedDay, setSelectedDay] = useState(null)    // 'YYYY-MM-DD'
 
-  const canGoPrev = month > 0   // Jan 2026 = limite inferior
-  const canGoNext = month < 11  // Dez 2026 = limite superior
+  // Permite navegar 12 meses para frente e para trás a partir do mês inicial
+  const initYear  = today.getFullYear()
+  const initMonth = today.getMonth()
+  const totalMonths = year * 12 + month
+  const initTotalMonths = initYear * 12 + initMonth
+  const canGoPrev = totalMonths > initTotalMonths - 12
+  const canGoNext = totalMonths < initTotalMonths + 12
 
   const [tasks,  setTasks]  = useState([])
   const [events, setEvents] = useState([])
@@ -102,12 +105,14 @@ export default function CalendarioPage() {
   // ── Navegação de mês ──────────────────────────────────
   function prevMonth() {
     if (!canGoPrev) return
-    setMonth(m => m - 1)
+    if (month === 0) { setYear(y => y - 1); setMonth(11) }
+    else setMonth(m => m - 1)
     setSelectedDay(null)
   }
   function nextMonth() {
     if (!canGoNext) return
-    setMonth(m => m + 1)
+    if (month === 11) { setYear(y => y + 1); setMonth(0) }
+    else setMonth(m => m + 1)
     setSelectedDay(null)
   }
   function goToday() {

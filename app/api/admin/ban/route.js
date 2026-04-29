@@ -15,6 +15,11 @@ export async function POST(req) {
   await admin.from('push_subscriptions').delete().eq('user_id', userId)
   await admin.from('profiles').delete().eq('id', userId)
 
+  // Muda o email para um aleatório ANTES de deletar — libera o email original imediatamente
+  // (Supabase mantém emails de usuários deletados por um tempo, impedindo re-cadastro com o mesmo nome)
+  const tempEmail = `banned_${userId}_${Date.now()}@anotaaif.app`
+  await admin.auth.admin.updateUserById(userId, { email: tempEmail })
+
   const { error } = await admin.auth.admin.deleteUser(userId)
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
