@@ -933,6 +933,7 @@ export default function AnotaAIF() {
               subgroup_name: activeSubgroup.name,
               subject: name,
               task_type: taskType,
+              due_date: dueDate || null,
               created_by_id: user.id,
               created_by_name: profile?.full_name,
             }),
@@ -958,6 +959,7 @@ export default function AnotaAIF() {
               class_code: classCode,
               subject: name,
               task_type: taskType,
+              due_date: dueDate || null,
               created_by_name: profile?.full_name,
             }),
           }).catch(() => {})

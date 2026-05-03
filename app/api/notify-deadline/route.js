@@ -31,7 +31,7 @@ function buildEmailHtml(name, tasks) {
     const tagColor = isProva ? '#EF4444' : '#3B82F6'
     const tag      = isProva ? 'PROVA' : 'ATIVIDADE'
     const daysLeft = t.daysLeft
-    const urgency  = daysLeft === 0 ? '🔴 Hoje!' : daysLeft === 1 ? '🟠 Amanhã' : `🟡 Em ${daysLeft} dias`
+    const urgency  = daysLeft === 1 ? '🟠 Amanhã' : `🟡 Em ${daysLeft} dias`
 
     return `
       <tr>
@@ -105,9 +105,10 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   )
 
-  // Datas alvo: hoje, amanhã e em 3 dias
-  const now    = new Date()
-  const dates  = [0, 1, 3].map(n => {
+  // Datas alvo: 1, 2, 4 e 7 dias antes do prazo
+  const offsets = [1, 2, 4, 7]
+  const now     = new Date()
+  const dates   = offsets.map(n => {
     const d = new Date(now)
     d.setDate(d.getDate() + n)
     return toYMD(d)
@@ -150,7 +151,7 @@ export async function GET(req) {
   const userTasks = {}
 
   for (const task of tasks) {
-    const daysLeft = dates.indexOf(task.due_date) === 0 ? 0 : dates.indexOf(task.due_date) === 1 ? 1 : 3
+    const daysLeft = offsets[dates.indexOf(task.due_date)] ?? 1
     const taskWithDays = { ...task, daysLeft }
 
     if (task.subgroup_id) {
