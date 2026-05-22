@@ -1853,6 +1853,13 @@ body {
   flex-shrink: 0;
 }
 
+.notif-banner--ios-install {
+  background: linear-gradient(135deg, #1a56db, #0f3c99);
+}
+.notif-banner--ios-install .notif-banner-btn {
+  color: #1a56db;
+}
+
 .admin-loading {
   display: flex; align-items: center; justify-content: center;
   height: 100dvh; color: var(--text-secondary); font-family: var(--font-body);

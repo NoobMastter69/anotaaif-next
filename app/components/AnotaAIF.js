@@ -1184,13 +1184,14 @@ export default function AnotaAIF() {
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
       })
       const { endpoint, keys } = newSub.toJSON()
-      await supabase.from('push_subscriptions').upsert(
+      const { error: upsertErr } = await supabase.from('push_subscriptions').upsert(
         { user_id: userId, endpoint, p256dh: keys.p256dh, auth_key: keys.auth },
         { onConflict: 'user_id,endpoint' }
       )
-      setPushEnabled(true)
+      if (upsertErr) console.error('syncPush upsert:', upsertErr.message)
+      else setPushEnabled(true)
     } catch (e) {
-      console.warn('syncPush:', e)
+      console.error('syncPush erro:', e?.message ?? e)
     }
   }
 
@@ -1199,9 +1200,14 @@ export default function AnotaAIF() {
       showSnackbar('Seu navegador não suporta notificações.')
       return
     }
+    // Se já está bloqueado, orientar o usuário
+    if (Notification.permission === 'denied') {
+      showSnackbar('Notificações bloqueadas. Acesse as configurações do navegador para liberar.')
+      return
+    }
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
-      showSnackbar('Permissão de notificação negada.')
+      showSnackbar('Permissão negada. Libere notificações nas configurações do navegador.')
       return
     }
     try {
@@ -1219,8 +1225,9 @@ export default function AnotaAIF() {
       }, { onConflict: 'user_id,endpoint' })
       setPushEnabled(true)
       showSnackbar('Notificações ativadas! ✓')
-    } catch {
-      showSnackbar('Erro ao ativar notificações.')
+    } catch (e) {
+      console.error('handleEnablePush:', e)
+      showSnackbar('Erro ao ativar notificações. Tente recarregar o app.')
     }
   }
 
@@ -1876,8 +1883,20 @@ export default function AnotaAIF() {
         </div>
       )}
 
-      {/* Banner: ativar notificações */}
-      {!pushEnabled && !viewingRoom && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+      {/* Banner: iOS não-PWA → precisa instalar o app primeiro */}
+      {isIos && !isInStandaloneMode && !pushEnabled && !viewingRoom && (
+        <div className="notif-banner notif-banner--ios-install">
+          <div className="notif-banner-icon">📲</div>
+          <div className="notif-banner-text">
+            <strong>Instale o app para receber notificações</strong>
+            <span>Toque em Compartilhar → Adicionar à Tela de Início no Safari</span>
+          </div>
+          <button className="notif-banner-btn" onClick={() => setShowIosInstallModal(true)}>Instalar</button>
+        </div>
+      )}
+
+      {/* Banner: ativar notificações (Android, desktop, ou iOS com PWA instalado) */}
+      {!pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
         <div className="notif-banner">
           <div className="notif-banner-icon">🔔</div>
           <div className="notif-banner-text">
