@@ -44,6 +44,7 @@ async function sendPush(
     await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
       JSON.stringify(payload),
+      { urgency: 'high', TTL: 86400 },
     )
     return true
   } catch (e: any) {

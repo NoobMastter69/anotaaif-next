@@ -1859,6 +1859,9 @@ body {
 .notif-banner--ios-install .notif-banner-btn {
   color: #1a56db;
 }
+.notif-banner--blocked {
+  background: linear-gradient(135deg, #6b7280, #374151);
+}
 
 .admin-loading {
   display: flex; align-items: center; justify-content: center;

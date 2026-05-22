@@ -1141,55 +1141,33 @@ export default function AnotaAIF() {
 
   // ── Push Notifications ────────────────────────────────
 
-  // Sincroniza subscription do browser com o DB — força re-subscrição se VAPID mudou
+  // Sincroniza subscription do browser com o DB
   async function syncPushSubscription(userId) {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
     try {
       const reg = await navigator.serviceWorker.ready
       const existing = await reg.pushManager.getSubscription()
+
       if (!existing) {
-        // Permissão já concedida mas sem subscription (PWA instalado ou VAPID mudou) → re-subscreve
-        if (Notification.permission === 'granted') {
-          try {
-            const newSub = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
-            })
-            const { endpoint, keys } = newSub.toJSON()
-            await supabase.from('push_subscriptions').upsert(
-              { user_id: userId, endpoint, p256dh: keys.p256dh, auth_key: keys.auth },
-              { onConflict: 'user_id,endpoint' }
-            )
-            setPushEnabled(true)
-          } catch (e) {
-            console.warn('syncPush auto-subscribe:', e)
-          }
-        }
+        // Sem subscription no browser — mostra banner para o usuário clicar
+        // (não auto-subscreve: Chrome Android bloqueia pushManager.subscribe sem gesto)
         return
       }
 
-      // Verifica se está no DB
+      // Verifica se o endpoint atual está no DB
       const { data } = await supabase.from('push_subscriptions')
         .select('id').eq('user_id', userId).eq('endpoint', existing.endpoint).maybeSingle()
 
       if (data) {
+        // Está no DB → tudo certo
         setPushEnabled(true)
         return
       }
 
-      // Não está no DB → desinscreveu com key velha, re-inscreve com nova
-      await existing.unsubscribe()
-      const newSub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
-      })
-      const { endpoint, keys } = newSub.toJSON()
-      const { error: upsertErr } = await supabase.from('push_subscriptions').upsert(
-        { user_id: userId, endpoint, p256dh: keys.p256dh, auth_key: keys.auth },
-        { onConflict: 'user_id,endpoint' }
-      )
-      if (upsertErr) console.error('syncPush upsert:', upsertErr.message)
-      else setPushEnabled(true)
+      // Endpoint não está no DB (VAPID key mudou ou tabela foi limpa)
+      // Descarta a subscription antiga do browser para o banner "Ativar" aparecer
+      await existing.unsubscribe().catch(() => {})
+      // Não tenta re-inscrever automaticamente — deixa o usuário clicar "Ativar"
     } catch (e) {
       console.error('syncPush erro:', e?.message ?? e)
     }
@@ -1892,6 +1870,17 @@ export default function AnotaAIF() {
             <span>Toque em Compartilhar → Adicionar à Tela de Início no Safari</span>
           </div>
           <button className="notif-banner-btn" onClick={() => setShowIosInstallModal(true)}>Instalar</button>
+        </div>
+      )}
+
+      {/* Banner: notificações bloqueadas no Chrome — precisa liberar nas configurações */}
+      {!pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
+        <div className="notif-banner notif-banner--blocked">
+          <div className="notif-banner-icon">🔕</div>
+          <div className="notif-banner-text">
+            <strong>Notificações bloqueadas</strong>
+            <span>Chrome → Configurações → Notificações → libere este site</span>
+          </div>
         </div>
       )}
 
