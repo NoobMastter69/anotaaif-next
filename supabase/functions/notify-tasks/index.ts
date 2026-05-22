@@ -3,11 +3,18 @@ import webpush from 'npm:web-push@3'
 
 const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const VAPID_PRIVATE    = Deno.env.get('VAPID_PRIVATE_KEY')!
-const VAPID_PUBLIC     = 'BP68pPed7fc05A0rpVHStsZdJkxXdbVg-_dmjz4DDq6RB1PxLef6slZQ4ix_A_MGHYMB-LEUEq1IVciYn6ixjeg'
+const VAPID_PRIVATE    = Deno.env.get('VAPID_PRIVATE_KEY')
+const VAPID_PUBLIC     = 'BE-Fel3Zzx8s1vnTaoprnCPoWo9fxUkxj8YEIAEOaVvN8j7tZGccLe-C_OQOTtOHoyqlLhPGWdeFhLAnI0L9iCE'
 const APP_URL          = 'https://anotaaif-next.vercel.app'
 
-webpush.setVapidDetails(`mailto:suporte@anotaaif.com`, VAPID_PUBLIC, VAPID_PRIVATE)
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+if (VAPID_PRIVATE) {
+  webpush.setVapidDetails(`mailto:suporte@anotaaif.com`, VAPID_PUBLIC, VAPID_PRIVATE)
+}
 
 // Retorna a data atual no fuso de Brasília (UTC-3)
 function todayBrasilia(): string {
@@ -22,47 +29,90 @@ function addDays(ymd: string, n: number): string {
 }
 
 function formatDate(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('pt-BR', {
+  return new Date(ymd + 'T12:00:00Z').toLocaleDateString('pt-BR', {
     weekday: 'long', day: 'numeric', month: 'long',
     timeZone: 'America/Sao_Paulo',
   })
 }
 
-async function sendPush(sub: { endpoint: string; p256dh: string; auth_key: string }, payload: object) {
+async function sendPush(
+  sub: { id?: string; endpoint: string; p256dh: string; auth_key: string },
+  payload: object,
+  supabase: ReturnType<typeof createClient>,
+): Promise<boolean> {
   try {
     await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
       JSON.stringify(payload),
     )
+    return true
   } catch (e: any) {
-    // 410 Gone = subscription expirada, ignora
-    if (e?.statusCode !== 410) console.error('Push error:', e?.message ?? e)
+    if (e?.statusCode === 410) {
+      await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint)
+    } else {
+      console.error('Push error:', e?.statusCode, e?.message ?? e)
+    }
+    return false
   }
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: CORS })
+  }
+
+  if (!VAPID_PRIVATE) {
+    console.error('VAPID_PRIVATE_KEY não configurado nos secrets do Supabase!')
+    return Response.json(
+      { ok: false, error: 'VAPID_PRIVATE_KEY não configurado. Acesse: Supabase Dashboard → Edge Functions → notify-tasks → Secrets e adicione VAPID_PRIVATE_KEY.' },
+      { status: 500, headers: CORS },
+    )
+  }
+
   const body = await req.json().catch(() => ({}))
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
   // ── Cron: lembretes diários ──────────────────────────────
   if (!body.type) {
-    const offsets = [1, 2, 4, 7]
+    const offsets = [0, 1, 2, 4, 7]
     const today   = todayBrasilia()
     const dates   = offsets.map(n => addDays(today, n))
 
-    const { data: tasks } = await supabase
+    // Tarefas cujo due_date principal bate com os offsets
+    const { data: mainTasks } = await supabase
       .from('tasks')
-      .select('id, type, subject, due_date, class_code, subgroup_id')
+      .select('id, type, subject, due_date, extra_dates, class_code, subgroup_id')
       .in('due_date', dates)
       .eq('done', false)
 
-    if (!tasks?.length) return Response.json({ ok: true, sent: 0 })
+    // Tarefas cujo extra_dates contém uma das datas alvo (sem duplicar as do due_date)
+    const extraFilter = dates.map(d => `extra_dates.cs.["${d}"]`).join(',')
+    const { data: extraTasks } = await supabase
+      .from('tasks')
+      .select('id, type, subject, due_date, extra_dates, class_code, subgroup_id')
+      .or(extraFilter)
+      .eq('done', false)
+
+    // Monta lista unificada com matchedDate e daysLeft
+    const mainIds = new Set((mainTasks ?? []).map((t: any) => t.id))
+    const tasks: any[] = []
+
+    for (const t of (mainTasks ?? [])) {
+      tasks.push({ ...t, matchedDate: t.due_date, daysLeft: offsets[dates.indexOf(t.due_date)] ?? 1 })
+    }
+    for (const t of (extraTasks ?? [])) {
+      if (mainIds.has(t.id)) continue
+      const matchedDate = dates.find(d => (t.extra_dates as string[] | null)?.includes(d))
+      if (!matchedDate) continue
+      tasks.push({ ...t, matchedDate, daysLeft: offsets[dates.indexOf(matchedDate)] ?? 1 })
+    }
+
+    if (!tasks.length) return Response.json({ ok: true, sent: 0 }, { headers: CORS })
 
     const { data: profiles }       = await supabase.from('profiles').select('id, class_code')
     const { data: allSubs }        = await supabase.from('push_subscriptions').select('*')
 
-    const subgroupIds = [...new Set(tasks.filter(t => t.subgroup_id).map(t => t.subgroup_id))]
+    const subgroupIds = [...new Set(tasks.filter((t: any) => t.subgroup_id).map((t: any) => t.subgroup_id))]
     let subgroupMembers: { user_id: string; subgroup_id: string }[] = []
     if (subgroupIds.length) {
       const { data } = await supabase.from('subgroup_members').select('user_id, subgroup_id').in('subgroup_id', subgroupIds)
@@ -72,16 +122,13 @@ Deno.serve(async (req) => {
     // Agrupa tarefas por usuário
     const userTasks: Record<string, any[]> = {}
     for (const task of tasks) {
-      const daysLeft = offsets[dates.indexOf(task.due_date)] ?? 1
-      const t = { ...task, daysLeft }
-
       if (task.subgroup_id) {
         subgroupMembers.filter(m => m.subgroup_id === task.subgroup_id).forEach(m => {
-          ;(userTasks[m.user_id] ??= []).push(t)
+          ;(userTasks[m.user_id] ??= []).push(task)
         })
       } else if (task.class_code) {
-        ;(profiles ?? []).filter(p => p.class_code === task.class_code).forEach(p => {
-          ;(userTasks[p.id] ??= []).push(t)
+        ;(profiles ?? []).filter((p: any) => p.class_code === task.class_code).forEach((p: any) => {
+          ;(userTasks[p.id] ??= []).push(task)
         })
       }
     }
@@ -93,7 +140,7 @@ Deno.serve(async (req) => {
     }
 
     let sent = 0
-    const pushes: Promise<void>[] = []
+    const pushes: Promise<boolean>[] = []
 
     for (const [userId, taskList] of Object.entries(userTasks)) {
       const subs = subsByUser[userId]
@@ -101,24 +148,25 @@ Deno.serve(async (req) => {
 
       const first  = taskList[0]
       const emoji  = first.type === 'prova' ? '📝' : '📚'
-      const dayStr = first.daysLeft === 1 ? 'amanhã' : `em ${first.daysLeft} dias`
+      const dayStr = first.daysLeft === 0 ? 'hoje' : first.daysLeft === 1 ? 'amanhã' : `em ${first.daysLeft} dias`
 
       const title = taskList.length === 1
         ? `${emoji} ${first.subject} — ${dayStr}!`
         : `⏰ ${taskList.length} tarefas chegando!`
 
       const msgBody = taskList.length === 1
-        ? `Prazo: ${formatDate(first.due_date)}`
-        : taskList.map(t => `• ${t.subject} (${formatDate(t.due_date)})`).join('\n')
+        ? `Prazo: ${formatDate(first.matchedDate)}`
+        : taskList.map((t: any) => `• ${t.subject} (${formatDate(t.matchedDate)})`).join('\n')
 
       for (const sub of subs) {
-        pushes.push(sendPush(sub, { title, body: msgBody, url: APP_URL }))
+        pushes.push(sendPush(sub, { title, body: msgBody, url: APP_URL }, supabase))
       }
       sent++
     }
 
-    await Promise.allSettled(pushes)
-    return Response.json({ ok: true, sent })
+    const results = await Promise.allSettled(pushes)
+    const delivered = results.filter(r => r.status === 'fulfilled' && r.value === true).length
+    return Response.json({ ok: true, sent, delivered }, { headers: CORS })
   }
 
   // ── Nova atividade / prova ───────────────────────────────
@@ -154,8 +202,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    await Promise.allSettled(subs.map(sub => sendPush(sub, { title, body: msgBody, url: APP_URL })))
-    return Response.json({ ok: true, sent: subs.length })
+    const results = await Promise.allSettled(subs.map(sub => sendPush(sub, { title, body: msgBody, url: APP_URL }, supabase)))
+    const delivered = results.filter(r => r.status === 'fulfilled' && r.value === true).length
+    return Response.json({ ok: true, sent: delivered, subscriptions: subs.length }, { headers: CORS })
   }
 
   // ── Sugestão de aluno → notifica moderadores ─────────────
@@ -167,31 +216,37 @@ Deno.serve(async (req) => {
       .or('is_admin.eq.true,is_moderator.eq.true')
 
     const ids = (mods ?? []).map((m: any) => m.id)
+    let delivered = 0
     if (ids.length) {
       const { data: subs } = await supabase.from('push_subscriptions').select('*').in('user_id', ids)
-      await Promise.allSettled((subs ?? []).map(sub => sendPush(sub, {
+      const results = await Promise.allSettled((subs ?? []).map(sub => sendPush(sub, {
         title: '📋 Nova sugestão de atividade',
         body: `${body.subject} — sugerida por ${body.suggested_by_name}`,
         url: `${APP_URL}/moderador`,
-      })))
+      }, supabase)))
+      delivered = results.filter(r => r.status === 'fulfilled' && r.value === true).length
     }
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, sent: delivered }, { headers: CORS })
   }
 
   // ── Anúncio do admin ─────────────────────────────────────
   if (body.type === 'announcement') {
     const { data: profs } = await supabase.from('profiles').select('id').eq('class_code', body.class_code)
     const ids = (profs ?? []).map((p: any) => p.id)
+    let delivered = 0
+    let subsCount = 0
     if (ids.length) {
       const { data: subs } = await supabase.from('push_subscriptions').select('*').in('user_id', ids)
-      await Promise.allSettled((subs ?? []).map(sub => sendPush(sub, {
+      subsCount = subs?.length ?? 0
+      const results = await Promise.allSettled((subs ?? []).map(sub => sendPush(sub, {
         title: body.title,
         body: body.body,
         url: body.url ?? APP_URL,
-      })))
+      }, supabase)))
+      delivered = results.filter(r => r.status === 'fulfilled' && r.value === true).length
     }
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, sent: delivered, subscriptions: subsCount, members: ids.length }, { headers: CORS })
   }
 
-  return Response.json({ ok: true })
+  return Response.json({ ok: true }, { headers: CORS })
 })

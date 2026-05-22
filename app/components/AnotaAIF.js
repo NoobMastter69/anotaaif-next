@@ -435,7 +435,8 @@ export default function AnotaAIF() {
 
   // Push notification subscription
   const [pushEnabled, setPushEnabled] = useState(false)
-  const VAPID_PUBLIC = 'BP68pPed7fc05A0rpVHStsZdJkxXdbVg-_dmjz4DDq6RB1PxLef6slZQ4ix_A_MGHYMB-LEUEq1IVciYn6ixjeg'
+  const VAPID_PUBLIC = 'BE-Fel3Zzx8s1vnTaoprnCPoWo9fxUkxj8YEIAEOaVvN8j7tZGccLe-C_OQOTtOHoyqlLhPGWdeFhLAnI0L9iCE'
+  const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   // ── PWA: registra SW + detecta plataforma + captura prompt ──
   useEffect(() => {
@@ -926,7 +927,7 @@ export default function AnotaAIF() {
         if (activeSubgroup) {
           fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
             body: JSON.stringify({
               type: 'subgroup_task',
               subgroup_id: activeSubgroup.id,
@@ -953,7 +954,7 @@ export default function AnotaAIF() {
           // Notifica todos os membros da sala quando uma tarefa é criada
           fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
             body: JSON.stringify({
               type: 'room_task',
               class_code: classCode,
@@ -999,7 +1000,7 @@ export default function AnotaAIF() {
         // Notifica moderador/admin
         fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
           body: JSON.stringify({ type: 'suggestion', class_code: classCode, subject: name, suggested_by_name: profile?.full_name }),
         }).catch(() => {})
       }

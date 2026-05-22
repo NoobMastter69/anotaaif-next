@@ -92,15 +92,30 @@ export default function AdminPage() {
     await loadProfiles()
   }
 
-  async function testPush() {
-    showFlash('Enviando notificação de teste…')
+  async function pushRoom(code) {
+    showFlash(`Enviando push para sala ${code}…`)
     const res = await fetch('/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'test', class_code: 'A8Y9Z6PW' }),
+      body: JSON.stringify({
+        type: 'announcement',
+        class_code: code,
+        title: '🔔 Teste de notificação — Anota AIF',
+        body: 'Notificação de teste enviada pelo admin!',
+      }),
     })
     const data = await res.json()
-    showFlash(data.log?.[0] ?? 'Enviado! Verifique o celular.')
+    if (!data.ok) {
+      showFlash(`❌ Erro: ${data.error ?? JSON.stringify(data)}`)
+    } else if (data.members === 0) {
+      showFlash(`Sala ${code}: nenhum membro encontrado.`)
+    } else if (data.subscriptions === 0) {
+      showFlash(`Sala ${code}: ${data.members} membro(s), mas nenhum ativou notificações ainda.`)
+    } else if (data.sent === 0) {
+      showFlash(`Sala ${code}: ${data.subscriptions} inscrito(s), mas nenhuma entregue (VAPID inválida?).`)
+    } else {
+      showFlash(`Sala ${code}: ${data.sent}/${data.subscriptions} notificação(ões) enviada(s) ✓`)
+    }
   }
 
   async function sendUpdateNotification() {
@@ -279,13 +294,6 @@ export default function AdminPage() {
         {activeTab === 'overview' && (
           <>
             <button
-              className="admin-btn admin-btn-active"
-              style={{ marginBottom: 8, width: '100%', padding: '10px', fontSize: 13 }}
-              onClick={testPush}
-            >
-              🔔 Testar notificação push (sala A8Y9Z6PW)
-            </button>
-            <button
               className="admin-btn"
               style={{ marginBottom: 12, width: '100%', padding: '10px', fontSize: 13, background: '#00843D', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
               onClick={sendUpdateNotification}
@@ -334,6 +342,14 @@ export default function AdminPage() {
                             onClick={() => copyInvite(r.class_code)}
                           >
                             {copiedInvite === r.class_code ? '✓' : '🔗'}
+                          </button>
+                          <button
+                            className="admin-btn admin-btn-active"
+                            style={{ fontSize: 11, padding: '2px 8px' }}
+                            onClick={() => pushRoom(r.class_code)}
+                            title="Enviar push de teste para essa sala"
+                          >
+                            🔔
                           </button>
                           <button
                             className="admin-btn admin-btn-danger"
@@ -453,6 +469,14 @@ export default function AdminPage() {
                       onClick={() => toggleRoomTasks(code)}
                     >
                       {expandedRoom === code ? '▲ Fechar' : '👁 Ver tarefas'}
+                    </button>
+                    <button
+                      className="admin-btn"
+                      style={{ fontSize: 11, padding: '3px 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                      onClick={() => pushRoom(code)}
+                      title="Testar push nessa sala"
+                    >
+                      🔔 Push
                     </button>
                     <a
                       href={`/?room=${code}`}
