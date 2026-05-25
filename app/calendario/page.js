@@ -61,6 +61,7 @@ const EVENT_META = {
 const TASK_META = {
   prova:     { color: '#EF4444', label: 'Prova'     },
   atividade: { color: '#3B82F6', label: 'Atividade' },
+  evento:    { color: '#D946EF', label: 'Evento'    },
 }
 
 // ── Componente Principal ──────────────────────────────
