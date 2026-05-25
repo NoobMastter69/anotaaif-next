@@ -435,6 +435,7 @@ export default function AnotaAIF() {
 
   // Push notification subscription
   const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushSyncDone, setPushSyncDone] = useState(false)
   const [reactivateDismissed, setReactivateDismissed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('reactivate_push_v2_dismissed') === '1'
@@ -1147,33 +1148,31 @@ export default function AnotaAIF() {
 
   // Sincroniza subscription do browser com o DB
   async function syncPushSubscription(userId) {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushSyncDone(true)
+      return
+    }
     try {
       const reg = await navigator.serviceWorker.ready
       const existing = await reg.pushManager.getSubscription()
 
       if (!existing) {
-        // Sem subscription no browser — mostra banner para o usuário clicar
-        // (não auto-subscreve: Chrome Android bloqueia pushManager.subscribe sem gesto)
         return
       }
 
-      // Verifica se o endpoint atual está no DB
       const { data } = await supabase.from('push_subscriptions')
         .select('id').eq('user_id', userId).eq('endpoint', existing.endpoint).maybeSingle()
 
       if (data) {
-        // Está no DB → tudo certo
         setPushEnabled(true)
         return
       }
 
-      // Endpoint não está no DB (VAPID key mudou ou tabela foi limpa)
-      // Descarta a subscription antiga do browser para o banner "Ativar" aparecer
       await existing.unsubscribe().catch(() => {})
-      // Não tenta re-inscrever automaticamente — deixa o usuário clicar "Ativar"
     } catch (e) {
       console.error('syncPush erro:', e?.message ?? e)
+    } finally {
+      setPushSyncDone(true)
     }
   }
 
@@ -1878,7 +1877,7 @@ export default function AnotaAIF() {
       )}
 
       {/* Banner: iOS não-PWA → precisa instalar o app primeiro */}
-      {isIos && !isInStandaloneMode && !pushEnabled && !viewingRoom && (
+      {pushSyncDone && isIos && !isInStandaloneMode && !pushEnabled && !viewingRoom && (
         <div className="notif-banner notif-banner--ios-install">
           <div className="notif-banner-icon">📲</div>
           <div className="notif-banner-text">
@@ -1890,7 +1889,7 @@ export default function AnotaAIF() {
       )}
 
       {/* Banner: notificações bloqueadas no Chrome — precisa liberar nas configurações */}
-      {!pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
+      {pushSyncDone && !pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
         <div className="notif-banner notif-banner--blocked">
           <div className="notif-banner-icon">🔕</div>
           <div className="notif-banner-text">
@@ -1901,7 +1900,7 @@ export default function AnotaAIF() {
       )}
 
       {/* Banner: REATIVAR notificações (chave VAPID foi atualizada) */}
-      {user && !pushEnabled && !reactivateDismissed && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+      {pushSyncDone && user && !pushEnabled && !reactivateDismissed && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
         <div className="notif-banner" style={{ background: '#d97706' }}>
           <div className="notif-banner-icon">⚠️</div>
           <div className="notif-banner-text">
@@ -1918,7 +1917,7 @@ export default function AnotaAIF() {
       )}
 
       {/* Banner: ativar notificações (Android, desktop, ou iOS com PWA instalado) */}
-      {!pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && reactivateDismissed && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+      {pushSyncDone && !pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && reactivateDismissed && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
         <div className="notif-banner">
           <div className="notif-banner-icon">🔔</div>
           <div className="notif-banner-text">
