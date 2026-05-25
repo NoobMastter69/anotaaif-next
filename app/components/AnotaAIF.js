@@ -1906,7 +1906,7 @@ export default function AnotaAIF() {
       )}
 
       {/* Banner: ativar notificações (Android, desktop, ou iOS com PWA instalado) */}
-      {!pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+      {!pushEnabled && !viewingRoom && !(isIos && !isInStandaloneMode) && reactivateDismissed && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
         <div className="notif-banner">
           <div className="notif-banner-icon">🔔</div>
           <div className="notif-banner-text">
