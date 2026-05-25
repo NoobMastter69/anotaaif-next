@@ -1872,6 +1872,13 @@ body {
   .admin-page { grid-column: 1 / -1; border-radius: var(--r-xl); overflow: hidden; min-height: calc(100dvh - 64px); }
   .admin-main { max-width: 860px; }
 }
+
+@media (min-width: 768px) {
+  .notif-banner {
+    grid-column: 1 / -1;
+    border-radius: 0;
+  }
+}
 .admin-header {
   background: linear-gradient(135deg, var(--green-primary) 0%, var(--green-dark) 100%);
   padding: 0 16px; padding-top: env(safe-area-inset-top);
