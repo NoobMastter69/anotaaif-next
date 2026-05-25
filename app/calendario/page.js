@@ -251,6 +251,9 @@ export default function CalendarioPage() {
                         {dayTasks.filter(t => t.type === 'atividade').length > 0 && (
                           <span className="cal-dot" style={{ backgroundColor: '#3B82F6' }} />
                         )}
+                        {dayTasks.filter(t => t.type === 'evento').length > 0 && (
+                          <span className="cal-dot" style={{ backgroundColor: '#D946EF' }} />
+                        )}
                       </div>
                     </button>
                   )
