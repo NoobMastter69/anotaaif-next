@@ -435,7 +435,11 @@ export default function AnotaAIF() {
 
   // Push notification subscription
   const [pushEnabled, setPushEnabled] = useState(false)
-  const VAPID_PUBLIC = 'BE-Fel3Zzx8s1vnTaoprnCPoWo9fxUkxj8YEIAEOaVvN8j7tZGccLe-C_OQOTtOHoyqlLhPGWdeFhLAnI0L9iCE'
+  const [reactivateDismissed, setReactivateDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('reactivate_push_v2_dismissed') === '1'
+  })
+  const VAPID_PUBLIC = 'BP6I-9vnPSWNGM_prcigsCK7INjRazZMxFUOAbcYgN0aOPNa8kpUUrtP8mRZmv6cJynLI8gIrh6frdSghXpkKBo'
   const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   // ── PWA: registra SW + detecta plataforma + captura prompt ──
@@ -1881,6 +1885,23 @@ export default function AnotaAIF() {
             <strong>Notificações bloqueadas</strong>
             <span>Chrome → Configurações → Notificações → libere este site</span>
           </div>
+        </div>
+      )}
+
+      {/* Banner: REATIVAR notificações (chave VAPID foi atualizada) */}
+      {user && !pushEnabled && !reactivateDismissed && !viewingRoom && !(isIos && !isInStandaloneMode) && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+        <div className="notif-banner" style={{ background: '#d97706' }}>
+          <div className="notif-banner-icon">⚠️</div>
+          <div className="notif-banner-text">
+            <strong>Reative suas notificações!</strong>
+            <span>As notificações foram atualizadas — precisa ativar de novo pra receber os lembretes</span>
+          </div>
+          <button className="notif-banner-btn" onClick={handleEnablePush} style={{ background: '#fff', color: '#d97706' }}>Reativar</button>
+          <button
+            onClick={() => { setReactivateDismissed(true); localStorage.setItem('reactivate_push_v2_dismissed', '1') }}
+            style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer', marginLeft: '4px', padding: '0 4px' }}
+            aria-label="Fechar"
+          >✕</button>
         </div>
       )}
 
