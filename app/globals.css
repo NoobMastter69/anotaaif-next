@@ -1874,7 +1874,24 @@ body {
 }
 
 @media (min-width: 768px) {
-  .notif-banner {
+  /* Banners de contexto (subgrupo, sala): sticky no topo da coluna de conteúdo */
+  .notif-banner--context {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-radius: 0;
+  }
+
+  /* Main recua quando há banner de contexto visível acima */
+  .main--with-context-banner {
+    padding-top: 52px;
+  }
+
+  /* Banners de sistema (notificações) ficam fixos no topo */
+  .notif-banner:not(.notif-banner--context) {
     position: fixed;
     top: 32px;
     left: 50%;

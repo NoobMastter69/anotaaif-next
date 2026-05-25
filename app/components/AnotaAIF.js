@@ -1395,7 +1395,17 @@ export default function AnotaAIF() {
 
   sorted.forEach((task, i) => {
     if (!task.done && !addedPending) {
-      listItems.push(<p key="label-pending" className="section-label">Pendentes</p>)
+      const pendingLabel = activeFilter === 'prova' ? 'Próximas' : 'Pendentes'
+      listItems.push(
+        <p key="label-pending" className="section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {pendingLabel}
+          <span style={{
+            background: activeFilter === 'prova' ? '#EF4444' : activeFilter === 'atividade' ? '#3B82F6' : 'var(--green-primary)',
+            color: '#fff', borderRadius: 20, fontSize: 10, fontWeight: 700,
+            padding: '1px 7px', letterSpacing: 0, textTransform: 'none',
+          }}>{pending.length}</span>
+        </p>
+      )
       addedPending = true
     }
     if (task.done && !addedDone) {
@@ -1845,7 +1855,7 @@ export default function AnotaAIF() {
 
       {/* Banner: subgrupo ativo */}
       {activeSubgroup && !viewingRoom && (
-        <div className="notif-banner" style={{ background: '#6366f1' }}>
+        <div className="notif-banner notif-banner--context" style={{ background: '#6366f1' }}>
           <div className="notif-banner-icon">🔵</div>
           <div className="notif-banner-text">
             <strong>{activeSubgroup.name}</strong>
@@ -1857,7 +1867,7 @@ export default function AnotaAIF() {
 
       {/* Banner: admin visualizando outra sala */}
       {viewingRoom && (
-        <div className="notif-banner" style={{ background: '#1a56db' }}>
+        <div className="notif-banner notif-banner--context" style={{ background: '#1a56db' }}>
           <div className="notif-banner-icon">👁</div>
           <div className="notif-banner-text">
             <strong>Modo visualização</strong>
@@ -1920,7 +1930,7 @@ export default function AnotaAIF() {
       )}
 
       {/* Main */}
-      <main className="main" role="main">
+      <main className={`main${(activeSubgroup && !viewingRoom) || viewingRoom ? ' main--with-context-banner' : ''}`} role="main">
 
         {/* ── Seção de Eventos (sempre separada das tarefas) ── */}
         {events.length > 0 && (
