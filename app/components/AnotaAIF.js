@@ -1206,6 +1206,8 @@ export default function AnotaAIF() {
         auth_key: keys.auth,
       }, { onConflict: 'user_id,endpoint' })
       setPushEnabled(true)
+      setReactivateDismissed(true)
+      localStorage.setItem('reactivate_push_v2_dismissed', '1')
       showSnackbar('Notificações ativadas! ✓')
     } catch (e) {
       console.error('handleEnablePush:', e)
