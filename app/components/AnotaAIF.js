@@ -1103,11 +1103,8 @@ export default function AnotaAIF() {
     if (!code) return
     setSgLoading(true); setSgError('')
 
-    const { data: sg, error } = await supabase
-      .from('subgroups')
-      .select('*')
-      .eq('invite_code', code)
-      .maybeSingle()
+    const { data: sgArr, error } = await supabase.rpc('get_subgroup_by_invite_code', { p_code: code })
+    const sg = sgArr?.[0] ?? null
 
     if (error || !sg) { setSgError('Código inválido.'); setSgLoading(false); return }
     if (sg.class_code !== profile?.class_code) { setSgError('Este subgrupo é de outra sala.'); setSgLoading(false); return }
@@ -1825,8 +1822,8 @@ export default function AnotaAIF() {
           {profile?.class_code && (
             <button
               className="user-bar-signout"
-              onClick={handleInvite}
-              title="Convidar para a sala"
+              onClick={viewMode === 'subgroup' ? () => copySubgroupInvite(activeSubgroup.invite_code) : handleInvite}
+              title={viewMode === 'subgroup' ? 'Convidar para o subgrupo' : 'Convidar para a sala'}
               style={{ background: inviteCopied ? '#00843D' : undefined }}
             >
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
