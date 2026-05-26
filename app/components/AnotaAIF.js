@@ -1658,15 +1658,10 @@ export default function AnotaAIF() {
                     {(activeSubgroup?.role === 'owner' || profile?.is_admin) && (
                       <button
                         className="btn-turma"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(activeSubgroup.invite_code)
-                            showSnackbar(`Código copiado: ${activeSubgroup.invite_code}`)
-                          } catch { showSnackbar(activeSubgroup.invite_code) }
-                        }}
-                        title="Copiar código do subgrupo"
+                        onClick={() => copySubgroupInvite(activeSubgroup.invite_code)}
+                        title="Copiar link de convite do subgrupo"
                       >
-                        🔑 {activeSubgroup.invite_code}
+                        🔗 Convidar
                       </button>
                     )}
                   </>
