@@ -1931,8 +1931,8 @@ export default function AnotaAIF() {
       {/* Main */}
       <main className={`main${(activeSubgroup && !viewingRoom) || viewingRoom ? ' main--with-context-banner' : ''}`} role="main">
 
-        {/* ── Seção de Eventos (sempre separada das tarefas) ── */}
-        {events.length > 0 && (
+        {/* ── Seção de Eventos (só em Todas e Eventos) ── */}
+        {events.length > 0 && (activeFilter === 'all' || activeFilter === 'evento') && (
           <div className="events-section">
             <div className="events-section-header">
               <span className="events-section-icon" aria-hidden="true">
