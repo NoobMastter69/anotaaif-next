@@ -4,7 +4,7 @@ import webpush from 'npm:web-push@3'
 const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const VAPID_PRIVATE    = Deno.env.get('VAPID_PRIVATE_KEY')
-const VAPID_PUBLIC     = 'BE-Fel3Zzx8s1vnTaoprnCPoWo9fxUkxj8YEIAEOaVvN8j7tZGccLe-C_OQOTtOHoyqlLhPGWdeFhLAnI0L9iCE'
+const VAPID_PUBLIC     = 'BP6I-9vnPSWNGM_prcigsCK7INjRazZMxFUOAbcYgN0aOPNa8kpUUrtP8mRZmv6cJynLI8gIrh6frdSghXpkKBo'
 const APP_URL          = 'https://anotaaif-next.vercel.app'
 
 const CORS = {

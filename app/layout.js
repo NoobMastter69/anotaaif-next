@@ -28,7 +28,14 @@ export const metadata = {
   title: 'Anota AIF!',
   description: 'Centralize suas provas e atividades do Instituto Federal',
   manifest: '/manifest.json',
-  icons: { icon: '/icons/anotaAIF.jpg', apple: '/icons/anotaAIF.jpg' },
+  icons: {
+    icon: [
+      { url: '/icons/logo-header.png', type: 'image/png' },
+      { url: '/icons/icon-192.png', type: 'image/png', sizes: '192x192' },
+    ],
+    shortcut: '/icons/logo-header.png',
+    apple: '/icons/icon-192.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

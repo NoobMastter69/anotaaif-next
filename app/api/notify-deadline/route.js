@@ -1,5 +1,11 @@
 import nodemailer from 'nodemailer'
+import webpush from 'web-push'
 import { createClient } from '@supabase/supabase-js'
+
+const VAPID_PUBLIC = 'BP6I-9vnPSWNGM_prcigsCK7INjRazZMxFUOAbcYgN0aOPNa8kpUUrtP8mRZmv6cJynLI8gIrh6frdSghXpkKBo'
+if (process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails('mailto:suporte@anotaaif.com', VAPID_PUBLIC, process.env.VAPID_PRIVATE_KEY)
+}
 
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
@@ -41,7 +47,7 @@ function buildEmailHtml(name, tasks) {
             <span style="font-size:12px;color:#888">${urgency}</span>
           </div>
           <p style="margin:0;font-size:15px;font-weight:600;color:#111">${emoji} ${t.subject ?? ''}${t.description ? ` — ${t.description}` : ''}</p>
-          <p style="margin:4px 0 0;font-size:12px;color:#888">Prazo: ${formatDate(t.due_date)}</p>
+          <p style="margin:4px 0 0;font-size:12px;color:#888">Prazo: ${formatDate(t.matchedDate)}</p>
         </td>
       </tr>
     `
@@ -114,10 +120,10 @@ export async function GET(req) {
     return toYMD(d)
   })
 
-  // Busca tarefas não concluídas com prazo nos próximos dias
-  const { data: tasks, error } = await supabase
+  // Tarefas pelo due_date principal
+  const { data: mainTasks, error } = await supabase
     .from('tasks')
-    .select('id, type, subject, description, due_date, class_code, subgroup_id, done')
+    .select('id, type, subject, description, due_date, extra_dates, class_code, subgroup_id, done')
     .in('due_date', dates)
     .eq('done', false)
 
@@ -126,13 +132,35 @@ export async function GET(req) {
     return Response.json({ error: String(error) }, { status: 500 })
   }
 
-  if (!tasks?.length) return Response.json({ ok: true, sent: 0 })
+  // Tarefas pelo extra_dates
+  const extraFilter = dates.map(d => `extra_dates.cs.["${d}"]`).join(',')
+  const { data: extraTasks } = await supabase
+    .from('tasks')
+    .select('id, type, subject, description, due_date, extra_dates, class_code, subgroup_id, done')
+    .or(extraFilter)
+    .eq('done', false)
 
-  // Busca todos os perfis com email
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, full_name, contact_email, class_code')
-    .not('contact_email', 'is', null)
+  // Monta lista unificada com matchedDate e daysLeft
+  const mainIds = new Set((mainTasks ?? []).map(t => t.id))
+  const tasks = []
+
+  for (const t of (mainTasks ?? [])) {
+    tasks.push({ ...t, matchedDate: t.due_date, daysLeft: offsets[dates.indexOf(t.due_date)] ?? 1 })
+  }
+  for (const t of (extraTasks ?? [])) {
+    if (mainIds.has(t.id)) continue
+    const matchedDate = dates.find(d => t.extra_dates?.includes(d))
+    if (!matchedDate) continue
+    tasks.push({ ...t, matchedDate, daysLeft: offsets[dates.indexOf(matchedDate)] ?? 1 })
+  }
+
+  if (!tasks.length) return Response.json({ ok: true, sent: 0 })
+
+  // Busca todos os perfis e push subscriptions em paralelo
+  const [{ data: profiles }, { data: allSubs }] = await Promise.all([
+    supabase.from('profiles').select('id, full_name, contact_email, class_code'),
+    supabase.from('push_subscriptions').select('*'),
+  ])
 
   if (!profiles?.length) return Response.json({ ok: true, sent: 0 })
 
@@ -151,52 +179,83 @@ export async function GET(req) {
   const userTasks = {}
 
   for (const task of tasks) {
-    const daysLeft = offsets[dates.indexOf(task.due_date)] ?? 1
-    const taskWithDays = { ...task, daysLeft }
-
     if (task.subgroup_id) {
-      // Tarefa de subgrupo: notifica membros do subgrupo
       const members = subgroupMembers.filter(m => m.subgroup_id === task.subgroup_id)
       for (const m of members) {
-        if (!userTasks[m.user_id]) userTasks[m.user_id] = []
-        userTasks[m.user_id].push(taskWithDays)
+        ;(userTasks[m.user_id] ??= []).push(task)
       }
     } else if (task.class_code) {
-      // Tarefa da turma: notifica todos da sala
       const classProfiles = profiles.filter(p => p.class_code === task.class_code)
       for (const p of classProfiles) {
-        if (!userTasks[p.id]) userTasks[p.id] = []
-        userTasks[p.id].push(taskWithDays)
+        ;(userTasks[p.id] ??= []).push(task)
       }
     }
   }
 
-  // Envia emails
   const profileMap = Object.fromEntries(profiles.map(p => [p.id, p]))
-  let sent = 0
+  const subsByUser = {}
+  for (const sub of (allSubs ?? [])) {
+    ;(subsByUser[sub.user_id] ??= []).push(sub)
+  }
+
+  let emailSent = 0
+  let pushSent = 0
+  const APP_URL = 'https://anotaaif-next.vercel.app'
+  const hasPush = !!process.env.VAPID_PRIVATE_KEY
 
   const sends = Object.entries(userTasks).map(async ([userId, userTaskList]) => {
     const profile = profileMap[userId]
-    if (!profile?.contact_email) return
 
-    const taskCount = userTaskList.length
-    const subjectLine = taskCount === 1
-      ? `⏰ Lembrete: 1 tarefa chegando — Anota AIF!`
-      : `⏰ Lembrete: ${taskCount} tarefas chegando — Anota AIF!`
+    // Email
+    if (profile?.contact_email) {
+      const taskCount = userTaskList.length
+      const subjectLine = taskCount === 1
+        ? `⏰ Lembrete: 1 tarefa chegando — Anota AIF!`
+        : `⏰ Lembrete: ${taskCount} tarefas chegando — Anota AIF!`
+      try {
+        await transporter.sendMail({
+          from: `"Anota AIF!" <${process.env.GMAIL_USER}>`,
+          to: profile.contact_email,
+          subject: subjectLine,
+          html: buildEmailHtml(profile.full_name, userTaskList),
+        })
+        emailSent++
+      } catch (e) {
+        console.error('[notify-deadline] sendMail error:', e)
+      }
+    }
 
-    try {
-      await transporter.sendMail({
-        from: `"Anota AIF!" <${process.env.GMAIL_USER}>`,
-        to: profile.contact_email,
-        subject: subjectLine,
-        html: buildEmailHtml(profile.full_name, userTaskList),
-      })
-      sent++
-    } catch (e) {
-      console.error('[notify-deadline] sendMail error:', e)
+    // Push
+    if (hasPush) {
+      const subs = subsByUser[userId]
+      if (!subs?.length) return
+
+      const first  = userTaskList[0]
+      const emoji  = first.type === 'prova' ? '📝' : '📚'
+      const dayStr = first.daysLeft === 1 ? 'amanhã' : `em ${first.daysLeft} dias`
+      const title  = userTaskList.length === 1
+        ? `${emoji} ${first.subject ?? ''} — ${dayStr}!`
+        : `⏰ ${userTaskList.length} tarefas chegando!`
+      const body   = userTaskList.length === 1
+        ? `Prazo: ${formatDate(first.matchedDate)}`
+        : userTaskList.map(t => `• ${t.subject} (${formatDate(t.matchedDate)})`).join('\n')
+
+      await Promise.allSettled(subs.map(sub =>
+        webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
+          JSON.stringify({ title, body, url: APP_URL }),
+          { urgency: 'high', TTL: 86400 },
+        ).then(() => { pushSent++ }).catch(async e => {
+          if (e?.statusCode === 410) {
+            await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint)
+          } else {
+            console.error('[notify-deadline] push error:', e?.statusCode, e?.message)
+          }
+        })
+      ))
     }
   })
 
   await Promise.allSettled(sends)
-  return Response.json({ ok: true, sent })
+  return Response.json({ ok: true, emailSent, pushSent })
 }

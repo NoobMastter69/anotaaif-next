@@ -55,7 +55,7 @@ export default function ModeradorPage() {
     showFlash(`Solicitação enviada para ${member.full_name}`)
     fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/notify-tasks`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
       body: JSON.stringify({ type: 'kick', target_name: member.full_name, requested_by: profile.full_name }),
     }).catch(() => {})
     await load(profile)
