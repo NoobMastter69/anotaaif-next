@@ -279,6 +279,8 @@ export default function AdminPage() {
   const vanished = profiles.filter(p => !p.is_admin && !opened14.ids.has(p.id))
   const openedNames14 = [...opened14.names.values()].sort((a, b) => a.localeCompare(b))
   const openedNames7  = new Set([...opened7.names.values()])
+  const launchedNames14 = [...launched14.names.values()].sort((a, b) => a.localeCompare(b))
+  const launchedNames7  = new Set([...launched7.names.values()])
 
   if (loading) return <div className="admin-loading">Carregando painel…</div>
   if (authError) return (
@@ -636,6 +638,29 @@ export default function AdminPage() {
                     </div>
                 }
                 <p style={{ fontSize:11, opacity:0.5, margin:'8px 0 0' }}>Verde = abriu também nos últimos 7 dias.</p>
+              </div>
+            </div>
+
+            {/* Quem lançou atividade */}
+            <div className="admin-turma" style={{ marginBottom:12 }}>
+              <div style={{ padding:'10px 14px' }}>
+                <strong style={{ fontSize:14 }}>📝 Lançaram atividade nos últimos 14 dias <span style={{ opacity:0.5 }}>({launchedNames14.length})</span></strong>
+                {launchedNames14.length === 0
+                  ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Ninguém lançou atividade no período.</p>
+                  : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
+                      {launchedNames14.map(n => {
+                        const recent = launchedNames7.has(n)
+                        return (
+                          <span key={n} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
+                            background: recent ? '#e6eff7' : '#f0f0f0', color: recent ? '#2471a3' : 'var(--text-secondary)',
+                            fontWeight: recent ? 700 : 500 }}>
+                            {n}{recent ? ' · 7d' : ''}
+                          </span>
+                        )
+                      })}
+                    </div>
+                }
+                <p style={{ fontSize:11, opacity:0.5, margin:'8px 0 0' }}>Azul = lançou também nos últimos 7 dias.</p>
               </div>
             </div>
 
