@@ -299,17 +299,13 @@ export default function AuthScreen({ onAuth }) {
   }
 
   return (
-    // Destrancando a altura da tela principal
-    <div className="auth-screen" style={{ minHeight: '100vh', height: 'auto', overflowY: 'auto' }}>
-      
-      <div className="auth-bg" aria-hidden="true" style={{ position: 'fixed' }}>
+    <div className="auth-screen">
+      <div className="auth-bg" aria-hidden="true">
         <div className="auth-blob auth-blob-1" />
         <div className="auth-blob auth-blob-2" />
       </div>
 
-      {/* Destrancando a altura do Card branco */}
-      <div className="auth-card" style={{ margin: '20px auto', height: 'auto', maxHeight: 'none' }}>
-
+      <div className="auth-card">
         <div className="auth-panel-left" aria-hidden="true">
           <div className="auth-panel-logo-wrap">
             <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="auth-panel-logo-img" />
@@ -324,10 +320,13 @@ export default function AuthScreen({ onAuth }) {
           <p className="auth-panel-footer">Feito para a galera do IF gente boa 👍</p>
         </div>
 
-        {/* OPÇÃO NUCLEAR: Forçando a rolagem apenas dentro do formulário e dando espaço no final */}
-        <div className="auth-panel-right" style={{ maxHeight: '90vh', overflowY: 'auto', paddingBottom: '80px', WebkitOverflowScrolling: 'touch' }}>
-        
-        <div className="auth-logo-wrap auth-logo-mobile" aria-hidden="true">
+        <div className="auth-panel-right" style={{ paddingBottom: 'calc(32px + env(safe-area-inset-bottom, 0px))' }}>
+
+        {/* key={mode} faz o React remontar os filhos ao trocar de aba,
+            reiniciando as animações de stagger */}
+        <div key={mode}>
+
+        <div className="auth-logo-wrap auth-logo-mobile auth-stagger auth-stagger-1" aria-hidden="true">
           <div className="auth-logo-icon-wrap">
             <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="auth-logo-img-real" />
           </div>
@@ -337,7 +336,7 @@ export default function AuthScreen({ onAuth }) {
           </div>
         </div>
 
-        <div className="auth-tabs" role="tablist">
+        <div className="auth-tabs auth-stagger auth-stagger-2" role="tablist">
           <button
             className={`auth-tab${mode === 'login' ? ' active' : ''}`}
             role="tab" aria-selected={mode === 'login'}
@@ -358,7 +357,7 @@ export default function AuthScreen({ onAuth }) {
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
 
-          <div className="auth-field">
+          <div className="auth-field auth-stagger auth-stagger-3">
             <label htmlFor="auth-name">
               {mode === 'login' ? 'Nome completo ou E-mail' : 'Nome completo'}
             </label>
@@ -370,7 +369,7 @@ export default function AuthScreen({ onAuth }) {
             />
           </div>
 
-          <div className="auth-field">
+          <div className="auth-field auth-stagger auth-stagger-4">
             <label htmlFor="auth-password">Senha</label>
             <input
               id="auth-password" type="password"
@@ -383,7 +382,7 @@ export default function AuthScreen({ onAuth }) {
 
           {mode === 'register' && (
             <>
-              <div className="auth-field">
+              <div className="auth-field auth-stagger auth-stagger-5">
                 <label htmlFor="auth-confirm">Confirmar senha</label>
                 <input
                   id="auth-confirm" type="password"
@@ -393,7 +392,7 @@ export default function AuthScreen({ onAuth }) {
                 />
               </div>
 
-              <div className="auth-field">
+              <div className="auth-field auth-stagger auth-stagger-6">
                 <label htmlFor="auth-email">
                   E-mail <span className="auth-required">*</span>
                 </label>
@@ -406,7 +405,7 @@ export default function AuthScreen({ onAuth }) {
                 <span className="auth-hint">Usado para confirmar sua conta e receber notificações</span>
               </div>
 
-              <div className="auth-row-2">
+              <div className="auth-row-2 auth-stagger auth-stagger-7">
                 <div className="auth-field">
                   <label htmlFor="auth-campus">Campus</label>
                   <select
@@ -435,7 +434,7 @@ export default function AuthScreen({ onAuth }) {
                 </div>
               </div>
 
-              <div className="auth-row-2">
+              <div className="auth-row-2 auth-stagger auth-stagger-8">
                 <div className="auth-field">
                   <label htmlFor="auth-ano">Ano / Turma</label>
                   <select
@@ -475,92 +474,95 @@ export default function AuthScreen({ onAuth }) {
 
           {error && <p className="auth-error" role="alert">{error}</p>}
 
-          {newRoomCode ? (
-            <div className="auth-new-room">
-              <p className="auth-new-room-title">✓ Conta criada! Sua sala foi gerada.</p>
-              <p className="auth-new-room-label">Código da turma:</p>
-              <div className="auth-new-room-code">{newRoomCode}</div>
-              <p className="auth-new-room-hint">Compartilhe com sua turma. Você é o moderador da sala.</p>
-              <button
-                type="button"
-                className="auth-submit"
-                onClick={() => {
-                  supabase.auth.signInWithPassword({ email: contactEmail.trim(), password }).then(async ({ data }) => {
-                    if (data?.user) {
-                      const displayName = data.user?.user_metadata?.full_name ?? name.trim()
-                      await logSignIn(data.user.id, displayName)
-                      onAuth(data.user, displayName)
-                    }
-                  })
-                }}
-              >
-                Entrar no App →
-              </button>
-            </div>
-          ) : forgotMode ? (
-            /* ── Tela de esqueci a senha ── */
-            <div>
-              {resetSent ? (
-                <div className="auth-new-room">
-                  <p className="auth-new-room-title">📧 Link enviado!</p>
-                  <p className="auth-new-room-hint">Verifique sua caixa de entrada (e o spam). Clique no link para redefinir a senha.</p>
-                  <button type="button" className="auth-submit" onClick={() => { setForgotMode(false); setResetSent(false) }}>
-                    Voltar ao login →
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="auth-field" style={{ marginTop: 8 }}>
-                    <label htmlFor="reset-email">Seu e-mail cadastrado</label>
-                    <input
-                      id="reset-email" type="email"
-                      placeholder="Ex: joao@gmail.com"
-                      value={resetEmail} onChange={e => setResetEmail(e.target.value)}
-                      autoComplete="email" autoFocus disabled={loading}
-                    />
-                  </div>
-                  {error && <p className="auth-error" role="alert">{error}</p>}
-                  <button
-                    type="button"
-                    className="auth-submit"
-                    disabled={loading || !resetEmail.trim()}
-                    style={{ minHeight: 48, marginTop: 12 }}
-                    onClick={handleForgotPassword}
-                  >
-                    {loading ? 'Enviando…' : 'Enviar link de redefinição'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setForgotMode(false); setError('') }}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', marginTop: 8, width: '100%' }}
-                  >
-                    ← Voltar
-                  </button>
-                </>
-              )}
-            </div>
-          ) : (
-            <>
-              <button
-                type="submit"
-                className="auth-submit"
-                disabled={loading}
-                style={{ whiteSpace: 'nowrap', minHeight: '48px', marginTop: '15px' }}
-              >
-                {loading ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
-              </button>
-              {mode === 'login' && (
+          <div className={`auth-stagger ${mode === 'register' ? 'auth-stagger-9' : 'auth-stagger-5'}`}>
+            {newRoomCode ? (
+              <div className="auth-new-room">
+                <p className="auth-new-room-title">✓ Conta criada! Sua sala foi gerada.</p>
+                <p className="auth-new-room-label">Código da turma:</p>
+                <div className="auth-new-room-code">{newRoomCode}</div>
+                <p className="auth-new-room-hint">Compartilhe com sua turma. Você é o moderador da sala.</p>
                 <button
                   type="button"
-                  onClick={() => { setForgotMode(true); setError(''); setResetEmail('') }}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', marginTop: 10, width: '100%' }}
+                  className="auth-submit"
+                  onClick={() => {
+                    supabase.auth.signInWithPassword({ email: contactEmail.trim(), password }).then(async ({ data }) => {
+                      if (data?.user) {
+                        const displayName = data.user?.user_metadata?.full_name ?? name.trim()
+                        await logSignIn(data.user.id, displayName)
+                        onAuth(data.user, displayName)
+                      }
+                    })
+                  }}
                 >
-                  Esqueceu sua senha?
+                  Entrar no App →
                 </button>
-              )}
-            </>
-          )}
+              </div>
+            ) : forgotMode ? (
+              /* ── Tela de esqueci a senha ── */
+              <div>
+                {resetSent ? (
+                  <div className="auth-new-room">
+                    <p className="auth-new-room-title">📧 Link enviado!</p>
+                    <p className="auth-new-room-hint">Verifique sua caixa de entrada (e o spam). Clique no link para redefinir a senha.</p>
+                    <button type="button" className="auth-submit" onClick={() => { setForgotMode(false); setResetSent(false) }}>
+                      Voltar ao login →
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="auth-field" style={{ marginTop: 8 }}>
+                      <label htmlFor="reset-email">Seu e-mail cadastrado</label>
+                      <input
+                        id="reset-email" type="email"
+                        placeholder="Ex: joao@gmail.com"
+                        value={resetEmail} onChange={e => setResetEmail(e.target.value)}
+                        autoComplete="email" autoFocus disabled={loading}
+                      />
+                    </div>
+                    {error && <p className="auth-error" role="alert">{error}</p>}
+                    <button
+                      type="button"
+                      className="auth-submit"
+                      disabled={loading || !resetEmail.trim()}
+                      style={{ minHeight: 48, marginTop: 12 }}
+                      onClick={handleForgotPassword}
+                    >
+                      {loading ? 'Enviando…' : 'Enviar link de redefinição'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setForgotMode(false); setError('') }}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', marginTop: 8, width: '100%' }}
+                    >
+                      ← Voltar
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <button
+                  type="submit"
+                  className="auth-submit"
+                  disabled={loading}
+                  style={{ whiteSpace: 'nowrap', minHeight: '48px', marginTop: '15px' }}
+                >
+                  {loading ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
+                </button>
+                {mode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => { setForgotMode(true); setError(''); setResetEmail('') }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', marginTop: 10, width: '100%' }}
+                  >
+                    Esqueceu sua senha?
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </form>
+        </div>
         </div>
       </div>
 

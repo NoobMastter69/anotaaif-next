@@ -69,36 +69,55 @@ const SUBJECTS_KEY = 'anotaaif_subjects'
 
 // ── Mapeamento JS ↔ DB ───────────────────────────────
 function toDb(task, userId = null, includeExtraDates = false) {
+  // Quando há múltiplas datas, armazena a ÚLTIMA como due_date (para o cron de limpeza
+  // só apagar após a última data) e as anteriores em extra_dates.
+  let dbDueDate = task.dueDate
+  let dbExtraDates = null
+  if (includeExtraDates && task.extraDates && task.extraDates.length > 0) {
+    const all = [task.dueDate, ...task.extraDates].filter(Boolean).sort()
+    dbDueDate   = all[all.length - 1]
+    dbExtraDates = all.slice(0, -1)
+  }
+
   const obj = {
     id: task.id,
     type: task.type,
     subject: task.subject,
     description: task.description,
-    due_date: task.dueDate,
+    due_date: dbDueDate,
     done: task.done,
     material_url: task.materialUrl || null,
     created_at: new Date(task.createdAt).toISOString(),
     ...(userId ? { created_by: userId } : {}),
   }
   if (includeExtraDates) {
-    obj.extra_dates = (task.extraDates && task.extraDates.length > 0) ? task.extraDates : null
+    obj.extra_dates = dbExtraDates
   }
   return obj
 }
 
 function fromDb(row) {
+  // due_date no banco é sempre a ÚLTIMA data; extra_dates contém as anteriores.
+  // Reconstrói: dueDate = primeira data, extraDates = demais (ordem crescente).
+  let dueDate    = row.due_date
+  let extraDates = row.extra_dates || null
+  if (extraDates && extraDates.length > 0) {
+    const all = [...extraDates, row.due_date].filter(Boolean).sort()
+    dueDate    = all[0]
+    extraDates = all.slice(1)
+  }
   return {
     id: row.id,
     type: row.type,
     subject: row.subject,
     description: row.description,
-    dueDate: row.due_date,
+    dueDate,
     done: row.done,
     materialUrl: row.material_url || null,
     createdAt: new Date(row.created_at).getTime(),
     createdBy: row.created_by || null,
     subgroupId: row.subgroup_id || null,
-    extraDates: row.extra_dates || null,
+    extraDates,
   }
 }
 
@@ -358,6 +377,7 @@ export default function AnotaAIF() {
   const [completions, setCompletions] = useState(new Set())  // task_ids concluídas pelo aluno
   const [activeFilter, setActiveFilter] = useState('all')
   const [isModalOpen, setIsModalOpen]   = useState(false)
+  const [fabMenuOpen, setFabMenuOpen]   = useState(false)
   const [editingTask, setEditingTask]   = useState(null)
   const [snackbar, setSnackbar]         = useState({ message: '', visible: false })
 
@@ -723,14 +743,15 @@ export default function AnotaAIF() {
       if (showMembers)         { setShowMembers(null); return }
       if (feedbackOpen)        { setFeedbackOpen(false); setFeedbackSent(false); setFeedbackText(''); return }
       if (showIosInstallModal) { setShowIosInstallModal(false); return }
+      if (fabMenuOpen)         { setFabMenuOpen(false); return }
       if (isModalOpen)         { closeModal() }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isModalOpen, doubtsTask, showMembers, feedbackOpen, showIosInstallModal])
+  }, [isModalOpen, fabMenuOpen, doubtsTask, showMembers, feedbackOpen, showIosInstallModal])
 
   // ── Modal ─────────────────────────────────────────────
-  function openModal(task = null) {
+  function openModal(task = null, type = null) {
     if (task) {
       setEditingTask(task)
       setTaskType(task.type)
@@ -746,9 +767,10 @@ export default function AnotaAIF() {
       setExtraDates(eds)
     } else {
       setEditingTask(null)
-      // Pré-seleciona 'evento' quando estiver na aba Eventos
-      if (activeFilter === 'evento') setTaskType('evento')
+      if (type) setTaskType(type)
+      else if (activeFilter === 'evento') setTaskType('evento')
     }
+    setFabMenuOpen(false)
     setIsModalOpen(true)
   }
 
@@ -824,7 +846,7 @@ export default function AnotaAIF() {
     setTasks(prev =>
       [...prev, task].sort((a, b) => a.createdAt - b.createdAt)
     )
-    await supabase.from('tasks').insert(toDb(task))
+    await supabase.from('tasks').insert(toDb(task, null, hasExtraDates))
     setSnackbar(s => ({ ...s, visible: false }))
   }
 
@@ -889,8 +911,16 @@ export default function AnotaAIF() {
           : t
       ))
 
-      const updateObj = { type: taskType, subject: name, description: descTrimmed, due_date: dueDate, material_url: mat }
-      if (hasExtraDates) updateObj.extra_dates = validExtraDates.length > 0 ? validExtraDates : null
+      // Mesma lógica do toDb: due_date = última data (cron apaga só depois dela)
+      let editDueDate    = dueDate
+      let editExtraDates = null
+      if (hasExtraDates && validExtraDates.length > 0) {
+        const all = [dueDate, ...validExtraDates].filter(Boolean).sort()
+        editDueDate    = all[all.length - 1]
+        editExtraDates = all.slice(0, -1)
+      }
+      const updateObj = { type: taskType, subject: name, description: descTrimmed, due_date: editDueDate, material_url: mat }
+      if (hasExtraDates) updateObj.extra_dates = editExtraDates
       const { error } = await supabase.from('tasks').update(updateObj).eq('id', editingTask.id)
 
       if (error) {
@@ -2002,17 +2032,69 @@ export default function AnotaAIF() {
         )}
       </main>
 
-      {/* FAB */}
-      <button
-        className={`fab${isModalOpen ? ' open' : ''}`}
-        aria-label={(profile?.is_admin || profile?.is_moderator || activeSubgroup) ? 'Adicionar nova tarefa' : 'Solicitar tarefa ao moderador'}
-        onClick={isModalOpen ? closeModal : () => openModal()}
-      >
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 5v14M5 12h14" stroke="white" strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </button>
+      {/* FAB backdrop */}
+      <div
+        className={`fab-backdrop${fabMenuOpen ? ' open' : ''}`}
+        onClick={() => setFabMenuOpen(false)}
+        aria-hidden="true"
+      />
+
+      {/* FAB speed-dial */}
+      <div className={`fab-wrapper${fabMenuOpen ? ' menu-open' : ''}`}>
+        <div className="fab-menu" aria-hidden={!fabMenuOpen}>
+          <button
+            className="fab-sub fab-sub--prova"
+            tabIndex={fabMenuOpen ? 0 : -1}
+            onClick={() => openModal(null, 'prova')}
+            aria-label="Nova Prova"
+          >
+            <span className="fab-sub-label">Nova Prova</span>
+            <span className="fab-sub-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9 2 2 4-4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+          </button>
+          <button
+            className="fab-sub fab-sub--atividade"
+            tabIndex={fabMenuOpen ? 0 : -1}
+            onClick={() => openModal(null, 'atividade')}
+            aria-label="Nova Atividade"
+          >
+            <span className="fab-sub-label">Nova Atividade</span>
+            <span className="fab-sub-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16M4 10h16M4 14h8M4 18h4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+          </button>
+          <button
+            className="fab-sub fab-sub--evento"
+            tabIndex={fabMenuOpen ? 0 : -1}
+            onClick={() => openModal(null, 'evento')}
+            aria-label="Novo Evento"
+          >
+            <span className="fab-sub-label">Novo Evento</span>
+            <span className="fab-sub-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2" stroke="white" strokeWidth="2"/>
+                <path d="M16 2v4M8 2v4M3 10h18" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </span>
+          </button>
+        </div>
+        <button
+          className={`fab${fabMenuOpen ? ' open' : ''}`}
+          aria-label={fabMenuOpen ? 'Fechar menu' : 'Adicionar nova tarefa'}
+          aria-expanded={fabMenuOpen}
+          onClick={() => setFabMenuOpen(v => !v)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="white" strokeWidth="2.5"
+                  strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
 
       {/* Modal */}
       <div

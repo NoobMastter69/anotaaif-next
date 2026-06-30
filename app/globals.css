@@ -38,6 +38,7 @@
   /* Superfícies */
   --bg            : #F4F6F4;
   --surface       : #FFFFFF;
+  --surface-secondary: #EEF2EE;
   --border        : #E4E8E4;
   --border-strong : #CDD4CC;
 
@@ -45,9 +46,6 @@
   --text-primary   : #161A14;
   --text-secondary : #566355;
   --text-muted     : #9AAA98;
-
-  /* Nota: --font-display e --font-body são injetadas pelo
-     next/font no layout.js — não declarar aqui. */
 
   /* Raios */
   --r-sm : 10px;
@@ -476,7 +474,8 @@ body {
   overflow: hidden;
   animation: cardIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
   position: relative;
-  transition: box-shadow 0.18s ease;
+  transition: box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+              transform  0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .event-card.event-past {
@@ -649,12 +648,107 @@ body {
 }
 
 /* ══════════════════════════════════════════════════════
-   FAB
+   FAB — Speed-dial expandable
    ══════════════════════════════════════════════════════ */
-.fab {
+.fab-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.fab-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.fab-wrapper {
   position: fixed;
   right: max(20px, calc(50vw - 195px));
   bottom: calc(22px + var(--safe-bottom));
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.fab-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.fab-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  transform: translateY(16px) scale(0.85);
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Stagger close: top first, bottom last */
+.fab-sub:nth-child(1) { transition-delay: 80ms; }
+.fab-sub:nth-child(2) { transition-delay: 40ms; }
+.fab-sub:nth-child(3) { transition-delay: 0ms;  }
+
+.fab-sub-label {
+  background: white;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 100px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
+  white-space: nowrap;
+  font-family: var(--font-display, sans-serif);
+  letter-spacing: -0.01em;
+}
+
+.fab-sub-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.20);
+  flex-shrink: 0;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.fab-sub--prova    .fab-sub-icon { background: linear-gradient(140deg, #ef4444, #b91c1c); }
+.fab-sub--atividade .fab-sub-icon { background: linear-gradient(140deg, #3b82f6, #1d4ed8); }
+.fab-sub--evento   .fab-sub-icon { background: linear-gradient(140deg, #d946ef, #a21caf); }
+
+/* Sub-buttons visible when menu-open */
+.fab-wrapper.menu-open .fab-menu { pointer-events: auto; }
+.fab-wrapper.menu-open .fab-sub {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Stagger open: bottom sub first, top sub last */
+.fab-wrapper.menu-open .fab-sub:nth-child(3) { transition-delay: 0ms;  }
+.fab-wrapper.menu-open .fab-sub:nth-child(2) { transition-delay: 60ms; }
+.fab-wrapper.menu-open .fab-sub:nth-child(1) { transition-delay: 120ms; }
+
+@media (hover: hover) {
+  .fab-sub:hover .fab-sub-label { background: var(--surface-secondary); }
+  .fab-sub:hover .fab-sub-icon  { transform: scale(1.1); }
+}
+
+.fab {
   width: 58px;
   height: 58px;
   background: linear-gradient(140deg, var(--green-primary) 0%, var(--green-dark) 100%);
@@ -665,7 +759,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.22s ease;
   animation: fabIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.25s both;
@@ -1261,9 +1355,15 @@ body {
   .event-card:hover .event-actions { opacity: 1; }
 
   /* ─── FAB ────────────────────────────────────────── */
-  .fab {
+  .fab-wrapper {
     bottom: 36px;
     right: max(28px, calc(50vw - 512px + 28px));
+    gap: 12px;
+  }
+  .fab-menu { gap: 10px; }
+  .fab-sub-label { font-size: 13px; padding: 7px 14px; }
+  .fab-sub-icon  { width: 46px; height: 46px; border-radius: 14px; }
+  .fab {
     width: 54px;
     height: 54px;
     border-radius: 16px;
@@ -1305,6 +1405,7 @@ body {
   border-radius: var(--r-md);
   overflow: hidden;
   animation: cardIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 /* O card dentro do container não se anima sozinho */
@@ -1314,6 +1415,7 @@ body {
   z-index: 1;
   will-change: transform;
   transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
               opacity  0.28s ease;
   cursor: pointer;
 }
@@ -1587,6 +1689,28 @@ body {
 
 /* Só em dispositivos com hover real (desktop/laptop) */
 @media (hover: hover) {
+  /* ── Task card: elevação + sombra + checkbox ── */
+  .swipe-container:hover {
+    transform: translateY(-4px);
+  }
+
+  .swipe-container:hover .task-card {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10), 0 3px 8px rgba(0, 0, 0, 0.06);
+    border-color: var(--border-strong);
+  }
+
+  .swipe-container:hover .task-checkbox {
+    transform: scale(1.14);
+    border-color: var(--green-primary);
+  }
+
+  /* ── Event card: elevação + sombra ── */
+  .event-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(217, 70, 239, 0.13), 0 3px 8px rgba(217, 70, 239, 0.07);
+  }
+
+  /* ── Botão de deletar (já existia) ── */
   .swipe-container:hover .card-delete-btn {
     opacity: 1;
     pointer-events: auto;
@@ -1658,6 +1782,11 @@ body {
 
 /* ─── Mobile: header compacto ───────────────────────── */
 @media (max-width: 767px) {
+  /* Header rola junto com o conteúdo no mobile — não fica preso no topo */
+  .header {
+    position: relative;
+  }
+
   .header-inner { margin-bottom: 10px; }
 
   .app-title {
@@ -1936,7 +2065,7 @@ body {
 .admin-turma { background: var(--surface); border-radius: var(--r-md); border: 1px solid var(--border); margin-bottom: 10px; overflow: hidden; }
 .admin-turma-header {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+  background: var(--surface-secondary); border-bottom: 1px solid var(--border);
 }
 .admin-turma-code { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--green-primary); letter-spacing: 1px; }
 .admin-turma-meta { font-size: 12px; color: var(--text-secondary); flex: 1; }
@@ -2005,10 +2134,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 24px 16px;
   background: linear-gradient(145deg, #00843D 0%, #00632E 55%, #004d24 100%);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Blobs decorativos (mobile) */
@@ -2033,6 +2163,8 @@ body {
   overflow: hidden;
   box-shadow: 0 24px 64px rgba(0,0,0,0.22), 0 4px 16px rgba(0,0,0,0.12);
   animation: authCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  flex-shrink: 0;
+  margin: auto 0;
 }
 
 /* Painel esquerdo: oculto no mobile */
@@ -2089,20 +2221,18 @@ body {
   }
 
   .auth-panel-logo-wrap {
-    background: white;
-    border-radius: 0;
-    padding: 10px;
+    border-radius: 14px;
+    overflow: hidden;
     margin-bottom: 20px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     width: 72px; height: 72px;
     position: relative; z-index: 1;
     box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    flex-shrink: 0;
   }
   .auth-panel-logo-img {
-    width: 52px; height: 52px;
-    object-fit: contain;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     display: block;
   }
   .auth-panel-title {
@@ -2168,6 +2298,31 @@ body {
 @keyframes authCardIn {
   from { opacity: 0; transform: translateY(28px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Auth: Staggered Load Animation ─────────────────── */
+@keyframes authStaggerUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.auth-stagger {
+  opacity: 0;
+  animation: authStaggerUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.auth-stagger-1  { animation-delay:  60ms; }
+.auth-stagger-2  { animation-delay: 120ms; }
+.auth-stagger-3  { animation-delay: 180ms; }
+.auth-stagger-4  { animation-delay: 240ms; }
+.auth-stagger-5  { animation-delay: 300ms; }
+.auth-stagger-6  { animation-delay: 360ms; }
+.auth-stagger-7  { animation-delay: 420ms; }
+.auth-stagger-8  { animation-delay: 480ms; }
+.auth-stagger-9  { animation-delay: 540ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-stagger { animation: none; opacity: 1; }
 }
 
 .auth-logo-wrap {
@@ -2836,7 +2991,68 @@ body {
   gap: 0;
 }
 .cal-col-grid   { flex: 1; }
-.cal-col-detail { /* mobile: painel de detalhes fica abaixo do grid */ }
+.cal-col-detail { /* mobile: vira bottom sheet via CSS :has() */ }
+
+/* ── Mobile: células compactas + bottom sheet ───────── */
+@media (max-width: 767px) {
+  .cal-page { overflow-x: hidden; }
+
+  /* Células menos altas */
+  .cal-cell       { aspect-ratio: 0.82; padding-top: 4px; }
+  .cal-day-name   { padding: 8px 0; font-size: 11px; }
+  .cal-nav        { margin-bottom: 10px; }
+  .cal-month-label{ font-size: 17px; }
+  .cal-legend     { gap: 6px 10px; }
+
+  /* Nenhum dia selecionado: esconde o painel abaixo (economiza espaço) */
+  .cal-col-detail:has(.cal-detail-placeholder) { display: none; }
+
+  /* Dia selecionado: bottom sheet */
+  .cal-col-detail:not(:has(.cal-detail-placeholder)) {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -6px 32px rgba(0,0,0,0.18);
+    max-height: 55vh;
+    overflow-y: auto;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    animation: calSheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Handle bar no topo do sheet */
+  .cal-col-detail:not(:has(.cal-detail-placeholder))::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--border-strong);
+    border-radius: 2px;
+    margin: 12px auto 0;
+  }
+
+  .cal-col-detail:not(:has(.cal-detail-placeholder)) .cal-detail {
+    margin-top: 0;
+    padding: 12px 16px 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  /* Padding no grid para não ficar escondido atrás do sheet */
+  .cal-page:has(.cal-col-detail:not(:has(.cal-detail-placeholder))) .cal-main {
+    padding-bottom: calc(55vh + 24px);
+  }
+}
+
+@keyframes calSheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
 
 /* ── Desktop (≥ 768px): calendário ocupa as 2 colunas do #app ── */
 @media (min-width: 768px) {

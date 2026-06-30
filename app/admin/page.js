@@ -16,14 +16,17 @@ export default function AdminPage() {
   const [roomTasks, setRoomTasks]     = useState({})
   const [copiedInvite, setCopiedInvite] = useState(null)
   const [loginLogs, setLoginLogs]     = useState([])
-  const [activeTab, setActiveTab]     = useState('overview')  // 'overview' | 'feedback' | 'logs' | 'subgroups' | 'ips'
+  const [actLogins, setActLogins]     = useState([])   // login_logs dos últimos 14 dias
+  const [actTasks, setActTasks]       = useState([])   // audit_logs (criação de atividade) dos últimos 14 dias
+  const [activeTab, setActiveTab]     = useState('overview')  // 'overview' | 'atividade' | 'feedback' | 'logs' | 'subgroups' | 'ips'
   const [loading, setLoading]         = useState(true)
   const [search, setSearch]           = useState('')
   const [flash, setFlash]             = useState('')
   const [authError, setAuthError]     = useState('')
 
   async function loadProfiles() {
-    const [{ data, error }, { data: sug }, { data: rms }, { data: fbs }, { data: logs }, { data: sgs }, { data: ips }] = await Promise.all([
+    const since14 = new Date(Date.now() - 14 * 86400000).toISOString()
+    const [{ data, error }, { data: sug }, { data: rms }, { data: fbs }, { data: logs }, { data: sgs }, { data: ips }, { data: actL }, { data: actT }] = await Promise.all([
       supabase.from('profiles').select('id, full_name, campus, curso, ano_turma, class_code, is_admin, is_moderator, kick_requested, created_at').order('campus'),
       supabase.from('task_suggestions').select('*').eq('status', 'pending').order('created_at'),
       supabase.from('rooms').select('*').order('campus'),
@@ -31,6 +34,8 @@ export default function AdminPage() {
       supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
       supabase.from('subgroups').select('*, subgroup_members(count)').order('created_at', { ascending: false }),
       supabase.from('login_logs').select('*').order('created_at', { ascending: false }).limit(200),
+      supabase.from('login_logs').select('user_id, full_name, created_at').gte('created_at', since14),
+      supabase.from('audit_logs').select('user_id, user_name, created_at').gte('created_at', since14).in('action', ['task_created', 'subgroup_task_created']),
     ])
     if (error) setAuthError('Erro ao carregar perfis: ' + error.message)
     setProfiles(data ?? [])
@@ -40,6 +45,8 @@ export default function AdminPage() {
     setAuditLogs(logs ?? [])
     setSubgroups(sgs ?? [])
     setLoginLogs(ips ?? [])
+    setActLogins(actL ?? [])
+    setActTasks(actT ?? [])
   }
 
   useEffect(() => {
@@ -249,6 +256,30 @@ export default function AdminPage() {
 
   const kickFlagged = profiles.filter(p => p.kick_requested)
 
+  // ── Medição de atividade (7 / 14 dias) ──
+  const now = Date.now()
+  // Conjuntos de user_id distintos por janela. Fallback para o nome quando não há user_id.
+  function distinctUsers(rows, nameKey, days) {
+    const limit = now - days * 86400000
+    const ids = new Set()
+    const names = new Map()  // user_id -> nome (para exibir)
+    rows.forEach(r => {
+      if (new Date(r.created_at).getTime() < limit) return
+      const key = r.user_id || ('name:' + (r[nameKey] ?? '?'))
+      ids.add(key)
+      if (!names.has(key)) names.set(key, r[nameKey] ?? '—')
+    })
+    return { ids, names }
+  }
+  const opened7  = distinctUsers(actLogins, 'full_name', 7)
+  const opened14 = distinctUsers(actLogins, 'full_name', 14)
+  const launched7  = distinctUsers(actTasks, 'user_name', 7)
+  const launched14 = distinctUsers(actTasks, 'user_name', 14)
+  // Quem sumiu: aluno (não-admin) que não abriu nos últimos 14 dias
+  const vanished = profiles.filter(p => !p.is_admin && !opened14.ids.has(p.id))
+  const openedNames14 = [...opened14.names.values()].sort((a, b) => a.localeCompare(b))
+  const openedNames7  = new Set([...opened7.names.values()])
+
   if (loading) return <div className="admin-loading">Carregando painel…</div>
   if (authError) return (
     <div className="admin-loading" style={{ flexDirection:'column', gap:12, padding:24, textAlign:'center' }}>
@@ -277,6 +308,7 @@ export default function AdminPage() {
       <div style={{ display:'flex', gap:4, padding:'8px 16px', background:'var(--surface)', borderBottom:'1px solid var(--border)', overflowX:'auto' }}>
         {[
           { id:'overview', label:'📊 Visão Geral' },
+          { id:'atividade', label:'📈 Atividade' },
           { id:'feedback', label:`💬 Feedback${feedbacks.length ? ` (${feedbacks.length})` : ''}` },
           { id:'logs',     label:'📋 Registros' },
           { id:'subgroups',label:`🔵 Subgrupos${subgroups.length ? ` (${subgroups.length})` : ''}` },
@@ -559,6 +591,76 @@ export default function AdminPage() {
           <p className="admin-empty">Nenhum resultado encontrado.</p>
         )}
         </>}
+
+        {/* ── Aba: Atividade (medição 7/14 dias) ── */}
+        {activeTab === 'atividade' && (
+          <section className="admin-campus-section">
+            <h2 className="admin-campus-title">📈 Quem está ativo</h2>
+
+            {/* Cartões de números */}
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16 }}>
+              {[
+                { label:'Abriram (7 dias)',   value:opened7.ids.size,   color:'#00843D' },
+                { label:'Abriram (14 dias)',  value:opened14.ids.size,  color:'#1f8a4c' },
+                { label:'Lançaram atividade (7 dias)',  value:launched7.ids.size,  color:'#2980b9' },
+                { label:'Lançaram atividade (14 dias)', value:launched14.ids.size, color:'#2471a3' },
+                { label:'Sumiram (sem abrir há 14 dias)', value:vanished.length, color:'#c0392b' },
+              ].map(c => (
+                <div key={c.label} style={{ flex:'1 1 140px', minWidth:140, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 14px' }}>
+                  <div style={{ fontSize:28, fontWeight:800, color:c.color, lineHeight:1 }}>{c.value}</div>
+                  <div style={{ fontSize:12, opacity:0.65, marginTop:4 }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize:11, opacity:0.5, marginTop:-8, marginBottom:16 }}>
+              “Abriu” = registrou login no período · “Lançou atividade” = criou tarefa (turma ou subgrupo). Contagem por pessoa, sem repetição.
+            </p>
+
+            {/* Quem abriu */}
+            <div className="admin-turma" style={{ marginBottom:12 }}>
+              <div style={{ padding:'10px 14px' }}>
+                <strong style={{ fontSize:14 }}>✅ Abriram nos últimos 14 dias <span style={{ opacity:0.5 }}>({openedNames14.length})</span></strong>
+                {openedNames14.length === 0
+                  ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Ninguém abriu no período.</p>
+                  : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
+                      {openedNames14.map(n => {
+                        const recent = openedNames7.has(n)
+                        return (
+                          <span key={n} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
+                            background: recent ? '#e3f5ea' : '#f0f0f0', color: recent ? '#00843D' : 'var(--text-secondary)',
+                            fontWeight: recent ? 700 : 500 }}>
+                            {n}{recent ? ' · 7d' : ''}
+                          </span>
+                        )
+                      })}
+                    </div>
+                }
+                <p style={{ fontSize:11, opacity:0.5, margin:'8px 0 0' }}>Verde = abriu também nos últimos 7 dias.</p>
+              </div>
+            </div>
+
+            {/* Quem sumiu */}
+            <div className="admin-turma">
+              <div style={{ padding:'10px 14px' }}>
+                <strong style={{ fontSize:14, color:'#c0392b' }}>💤 Sumiram — sem abrir há 14 dias <span style={{ opacity:0.5 }}>({vanished.length})</span></strong>
+                {vanished.length === 0
+                  ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Todo mundo abriu nos últimos 14 dias 🎉</p>
+                  : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
+                      {vanished
+                        .slice()
+                        .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
+                        .map(p => (
+                          <span key={p.id} title={`${p.class_code ?? '—'} · ${p.ano_turma ?? ''} ${p.curso ?? ''}`}
+                            style={{ fontSize:12, padding:'3px 9px', borderRadius:999, background:'#fdeceb', color:'#c0392b', fontWeight:500 }}>
+                            {p.full_name ?? '—'}{p.class_code ? ` · ${p.class_code}` : ''}
+                          </span>
+                        ))}
+                    </div>
+                }
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* ── Aba: Feedback ── */}
         {activeTab === 'feedback' && (
