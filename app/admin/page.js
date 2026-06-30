@@ -277,10 +277,15 @@ export default function AdminPage() {
   const launched14 = distinctUsers(actTasks, 'user_name', 14)
   // Quem sumiu: aluno (não-admin) que não abriu nos últimos 14 dias
   const vanished = profiles.filter(p => !p.is_admin && !opened14.ids.has(p.id))
-  const openedNames14 = [...opened14.names.values()].sort((a, b) => a.localeCompare(b))
-  const openedNames7  = new Set([...opened7.names.values()])
-  const launchedNames14 = [...launched14.names.values()].sort((a, b) => a.localeCompare(b))
-  const launchedNames7  = new Set([...launched7.names.values()])
+  // Resolve a sala (class_code) de cada pessoa cruzando user_id com os perfis.
+  const profById = Object.fromEntries(profiles.map(p => [p.id, p]))
+  function buildList(win14, win7) {
+    return [...win14.names.entries()]
+      .map(([key, name]) => ({ key, name, sala: profById[key]?.class_code ?? null, recent: win7.ids.has(key) }))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+  }
+  const openedList   = buildList(opened14, opened7)
+  const launchedList = buildList(launched14, launched7)
 
   if (loading) return <div className="admin-loading">Carregando painel…</div>
   if (authError) return (
@@ -621,20 +626,17 @@ export default function AdminPage() {
             {/* Quem abriu */}
             <div className="admin-turma" style={{ marginBottom:12 }}>
               <div style={{ padding:'10px 14px' }}>
-                <strong style={{ fontSize:14 }}>✅ Abriram nos últimos 14 dias <span style={{ opacity:0.5 }}>({openedNames14.length})</span></strong>
-                {openedNames14.length === 0
+                <strong style={{ fontSize:14 }}>✅ Abriram nos últimos 14 dias <span style={{ opacity:0.5 }}>({openedList.length})</span></strong>
+                {openedList.length === 0
                   ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Ninguém abriu no período.</p>
                   : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
-                      {openedNames14.map(n => {
-                        const recent = openedNames7.has(n)
-                        return (
-                          <span key={n} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
-                            background: recent ? '#e3f5ea' : '#f0f0f0', color: recent ? '#00843D' : 'var(--text-secondary)',
-                            fontWeight: recent ? 700 : 500 }}>
-                            {n}{recent ? ' · 7d' : ''}
-                          </span>
-                        )
-                      })}
+                      {openedList.map(u => (
+                        <span key={u.key} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
+                          background: u.recent ? '#e3f5ea' : '#f0f0f0', color: u.recent ? '#00843D' : 'var(--text-secondary)',
+                          fontWeight: u.recent ? 700 : 500 }}>
+                          {u.name}{u.sala ? ` · ${u.sala}` : ''}{u.recent ? ' · 7d' : ''}
+                        </span>
+                      ))}
                     </div>
                 }
                 <p style={{ fontSize:11, opacity:0.5, margin:'8px 0 0' }}>Verde = abriu também nos últimos 7 dias.</p>
@@ -644,20 +646,17 @@ export default function AdminPage() {
             {/* Quem lançou atividade */}
             <div className="admin-turma" style={{ marginBottom:12 }}>
               <div style={{ padding:'10px 14px' }}>
-                <strong style={{ fontSize:14 }}>📝 Lançaram atividade nos últimos 14 dias <span style={{ opacity:0.5 }}>({launchedNames14.length})</span></strong>
-                {launchedNames14.length === 0
+                <strong style={{ fontSize:14 }}>📝 Lançaram atividade nos últimos 14 dias <span style={{ opacity:0.5 }}>({launchedList.length})</span></strong>
+                {launchedList.length === 0
                   ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Ninguém lançou atividade no período.</p>
                   : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
-                      {launchedNames14.map(n => {
-                        const recent = launchedNames7.has(n)
-                        return (
-                          <span key={n} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
-                            background: recent ? '#e6eff7' : '#f0f0f0', color: recent ? '#2471a3' : 'var(--text-secondary)',
-                            fontWeight: recent ? 700 : 500 }}>
-                            {n}{recent ? ' · 7d' : ''}
-                          </span>
-                        )
-                      })}
+                      {launchedList.map(u => (
+                        <span key={u.key} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
+                          background: u.recent ? '#e6eff7' : '#f0f0f0', color: u.recent ? '#2471a3' : 'var(--text-secondary)',
+                          fontWeight: u.recent ? 700 : 500 }}>
+                          {u.name}{u.sala ? ` · ${u.sala}` : ''}{u.recent ? ' · 7d' : ''}
+                        </span>
+                      ))}
                     </div>
                 }
                 <p style={{ fontSize:11, opacity:0.5, margin:'8px 0 0' }}>Azul = lançou também nos últimos 7 dias.</p>
