@@ -3,8 +3,18 @@ import webpush from 'web-push'
 import { createClient } from '@supabase/supabase-js'
 
 const VAPID_PUBLIC = 'BP6I-9vnPSWNGM_prcigsCK7INjRazZMxFUOAbcYgN0aOPNa8kpUUrtP8mRZmv6cJynLI8gIrh6frdSghXpkKBo'
-if (process.env.VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails('mailto:suporte@anotaaif.com', VAPID_PUBLIC, process.env.VAPID_PRIVATE_KEY)
+// Normaliza para base64 url-safe (web-push rejeita '+', '/' e '=' do base64 padrão).
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY
+  ?.trim().replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+// Uma VAPID malformada NUNCA deve derrubar o build/site — apenas desativa o push.
+let pushEnabled = false
+if (VAPID_PRIVATE) {
+  try {
+    webpush.setVapidDetails('mailto:suporte@anotaaif.com', VAPID_PUBLIC, VAPID_PRIVATE)
+    pushEnabled = true
+  } catch (e) {
+    console.error('[notify-deadline] VAPID_PRIVATE_KEY inválida, push desativado:', e?.message)
+  }
 }
 
 const transporter = nodemailer.createTransport({
@@ -201,7 +211,7 @@ export async function GET(req) {
   let emailSent = 0
   let pushSent = 0
   const APP_URL = 'https://anotaaif-next.vercel.app'
-  const hasPush = !!process.env.VAPID_PRIVATE_KEY
+  const hasPush = pushEnabled
 
   const sends = Object.entries(userTasks).map(async ([userId, userTaskList]) => {
     const profile = profileMap[userId]
