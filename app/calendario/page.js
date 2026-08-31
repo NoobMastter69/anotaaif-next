@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
+import ThemeToggle from '../components/ThemeToggle'
 
 // ── Helpers de data ───────────────────────────────────
 const MONTH_NAMES = [
@@ -173,7 +174,10 @@ export default function CalendarioPage() {
 
           <h1 className="cal-title">Calendário do IF</h1>
 
-          <button className="cal-today-btn" onClick={goToday}>Hoje</button>
+          <div className="header-right-group">
+            <ThemeToggle className="btn-theme-mini" showLabel={false} />
+            <button className="cal-today-btn" onClick={goToday}>Hoje</button>
+          </div>
         </div>
       </header>
 

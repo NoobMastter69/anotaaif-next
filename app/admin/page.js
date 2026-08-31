@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
+import ThemeToggle from '../components/ThemeToggle'
 
 export default function AdminPage() {
   const router = useRouter()
@@ -427,7 +428,10 @@ export default function AdminPage() {
             Voltar
           </button>
           <h1 className="admin-title">Painel Admin</h1>
-          <span className="admin-count">{profiles.length} alunos</span>
+          <div className="header-right-group">
+            <ThemeToggle className="btn-theme-mini" showLabel={false} />
+            <span className="admin-count">{profiles.length} alunos</span>
+          </div>
         </div>
       </header>
 

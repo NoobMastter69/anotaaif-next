@@ -1494,11 +1494,14 @@ export default function AnotaAIF() {
             <img src="/icons/anotaAIF.jpg" alt="Anota AIF!" className="logo-img" style={{ width:36, height:36, borderRadius:8 }}/>
             <span className="app-title" style={{ fontSize:18 }}>Anota AIF!</span>
           </div>
+          <div className="header-right-group">
+          <ThemeToggle className="btn-theme-mini" showLabel={false} />
           <button className="user-bar-signout" style={{ color:'rgba(255,255,255,0.7)', border:'1px solid rgba(255,255,255,0.25)' }}
             onClick={handleSignOut}>
             <svg viewBox="0 0 20 20" fill="none" style={{ width:14, height:14 }}><path d="M13 3h4a1 1 0 011 1v12a1 1 0 01-1 1h-4M8 14l4-4-4-4M12 10H3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Sair
           </button>
+          </div>
         </header>
 
         <main className="selector-main">

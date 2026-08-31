@@ -4055,3 +4055,52 @@ html[data-theme="dark"] .type-option.selected-evento {
   .tabela-cartao td { flex-direction: column; gap: 1px; }
   .tabela-cartao td::before { flex: none; }
 }
+
+/* ══════════════════════════════════════════════════════
+   Calendário no modo escuro
+   A faixa "Dom Seg Ter…" usava var(--green-primary), que no
+   escuro é um verde-neon (#2FB35F) e destoava da tela toda.
+   Passa a acompanhar o verde escuro do cabeçalho.
+   ══════════════════════════════════════════════════════ */
+html[data-theme="dark"] .cal-grid-header { background: #0A5730; }
+
+/* Bolinha do dia de hoje: verde claro com texto branco dava
+   contraste ruim; com texto escuro fica legível e continua saltando. */
+html[data-theme="dark"] .cal-cell--today .cal-day-num {
+  background: var(--green-primary);
+  color: #0B0F0C;
+}
+
+/* ══════════════════════════════════════════════════════
+   Botão de tema compacto (só ícone) para os cabeçalhos
+   apertados: calendário, painel admin, moderador e seletor
+   ══════════════════════════════════════════════════════ */
+.btn-theme-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  border: 1.5px solid rgba(255,255,255,0.3);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.18s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-theme-mini svg { width: 16px; height: 16px; }
+.btn-theme-mini:hover { background: rgba(255,255,255,0.28); }
+
+/* Agrupa o botão de tema com o que já existia no canto direito */
+.header-right-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* A barra do seletor de sala usava var(--green-primary) e ficava
+   verde-neon no escuro, igual acontecia na faixa do calendário. */
+html[data-theme="dark"] .selector-header { background: #0A5730; }
