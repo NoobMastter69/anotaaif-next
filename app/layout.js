@@ -1,5 +1,6 @@
 import { Outfit, DM_Sans } from 'next/font/google'
 import './globals.css'
+import PresenceTracker from './components/PresenceTracker'
 
 // Outfit: fonte display (títulos, badges, tabs)
 const outfit = Outfit({
@@ -48,8 +49,25 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="pt-BR" className={`${outfit.variable} ${dmSans.variable}`}>
+    <html lang="pt-BR" className={`${outfit.variable} ${dmSans.variable}`} suppressHydrationWarning>
       <body>
+        {/* Aplica o tema antes da primeira pintura, pra não piscar branco no modo escuro */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            try {
+              var t = localStorage.getItem('aaif_theme');
+              if (t !== 'dark' && t !== 'light') {
+                t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+              }
+              document.documentElement.dataset.theme = t;
+              var m = document.querySelector('meta[name="theme-color"]');
+              if (m) m.setAttribute('content', t === 'dark' ? '#0F1511' : '#00843D');
+            } catch (e) {
+              document.documentElement.dataset.theme = 'light';
+            }
+          })();
+        `}} />
+        <PresenceTracker />
         <div id="app">
           {children}
         </div>

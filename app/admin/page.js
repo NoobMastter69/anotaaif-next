@@ -16,6 +16,12 @@ export default function AdminPage() {
   const [roomTasks, setRoomTasks]     = useState({})
   const [copiedInvite, setCopiedInvite] = useState(null)
   const [loginLogs, setLoginLogs]     = useState([])
+  // ── Presença (SOMENTE o dono) ──
+  const [isOwner, setIsOwner]         = useState(false)
+  const [presSessions, setPresSessions] = useState([])
+  const [presRange, setPresRange]     = useState('hoje')   // 'hoje' | '7d' | '30d'
+  const [presSearch, setPresSearch]   = useState('')
+  const [agora, setAgora]             = useState(() => Date.now())
   const [actLogins, setActLogins]     = useState([])   // login_logs dos últimos 14 dias
   const [actTasks, setActTasks]       = useState([])   // audit_logs (criação de atividade) dos últimos 14 dias
   const [activeTab, setActiveTab]     = useState('overview')  // 'overview' | 'atividade' | 'feedback' | 'logs' | 'subgroups' | 'ips'
@@ -49,6 +55,24 @@ export default function AdminPage() {
     setActTasks(actT ?? [])
   }
 
+  // Carrega as sessões de acesso. A RLS da tabela só libera SELECT para o
+  // dono — admin e moderador recebem lista vazia mesmo se chamarem direto.
+  async function loadPresence(range = presRange) {
+    const days = range === 'hoje' ? 1 : range === '7d' ? 7 : 30
+    const since = range === 'hoje'
+      ? new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+      : new Date(Date.now() - days * 86400000).toISOString()
+
+    setAgora(Date.now())
+    const { data } = await supabase
+      .from('access_sessions')
+      .select('*')
+      .gte('started_at', since)
+      .order('started_at', { ascending: false })
+      .limit(800)
+    setPresSessions(data ?? [])
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
@@ -68,10 +92,25 @@ export default function AdminPage() {
         setLoading(false)
         return
       }
+      // Dono: consulta separada e tolerante — se a migration ainda não rodou,
+      // a coluna não existe e o painel simplesmente segue sem a aba.
+      const { data: own } = await supabase
+        .from('profiles').select('is_owner').eq('id', session.user.id).maybeSingle()
+      const owner = !!own?.is_owner
+      setIsOwner(owner)
+
       await loadProfiles()
+      if (owner) await loadPresence('hoje')
       setLoading(false)
     })
   }, [])
+
+  // Enquanto a aba Presença estiver aberta, atualiza sozinha.
+  useEffect(() => {
+    if (!isOwner || activeTab !== 'presenca') return
+    const id = setInterval(() => loadPresence(), 20000)
+    return () => clearInterval(id)
+  }, [isOwner, activeTab, presRange])
 
   function showFlash(msg) {
     setFlash(msg)
@@ -287,11 +326,94 @@ export default function AdminPage() {
   const openedList   = buildList(opened14, opened7)
   const launchedList = buildList(launched14, launched7)
 
+  // ── Presença: derivados ──
+  const ONLINE_MS = 120000   // sem ping há 2 min = saiu
+  function isOnline(sess) {
+    return !sess.ended_at && (agora - new Date(sess.last_seen_at).getTime()) < ONLINE_MS
+  }
+  function fmtHora(iso) {
+    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
+  function fmtDia(iso) {
+    return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  }
+  function fmtDuracao(ms) {
+    if (!ms || ms < 0) return '—'
+    const min = Math.round(ms / 60000)
+    if (min < 1) return 'menos de 1 min'
+    if (min < 60) return `${min} min`
+    const h = Math.floor(min / 60)
+    return `${h}h${String(min % 60).padStart(2, '0')}`
+  }
+  function haQuantoTempo(iso) {
+    const min = Math.round((agora - new Date(iso).getTime()) / 60000)
+    if (min < 1) return 'agora mesmo'
+    if (min < 60) return `há ${min} min`
+    const h = Math.floor(min / 60)
+    if (h < 24) return `há ${h}h`
+    return `há ${Math.floor(h / 24)} d`
+  }
+  function nomeDaSessao(sess) {
+    return sess.full_name || (sess.user_id ? 'Sem apelido' : 'Visitante (não logado)')
+  }
+  function localDaSessao(sess) {
+    return [sess.city, sess.region].filter(Boolean).join(' · ') || '—'
+  }
+  function duracaoSessao(sess) {
+    const fim = sess.ended_at ? new Date(sess.ended_at).getTime()
+                              : new Date(sess.last_seen_at).getTime()
+    return fim - new Date(sess.started_at).getTime()
+  }
+
+  const presFiltradas = presSessions.filter(sess => {
+    const q = presSearch.trim().toLowerCase()
+    if (!q) return true
+    return [nomeDaSessao(sess), sess.ip, sess.city, sess.class_code, sess.device, sess.browser]
+      .some(v => (v ?? '').toString().toLowerCase().includes(q))
+  })
+
+  const presOnline    = presFiltradas.filter(isOnline)
+  const presPessoas   = new Set(presFiltradas.map(sess => sess.user_id ?? 'anon:' + sess.ip)).size
+  const presVisitas   = presFiltradas.filter(sess => !sess.user_id).length
+  const presDuracoes  = presFiltradas.map(duracaoSessao).filter(ms => ms > 0)
+  const presMedia     = presDuracoes.length
+    ? presDuracoes.reduce((a, b) => a + b, 0) / presDuracoes.length
+    : 0
+
+  // Resumo por pessoa dentro do período escolhido
+  const presPorPessoa = Object.values(
+    presFiltradas.reduce((acc, sess) => {
+      const chave = sess.user_id ?? 'anon:' + sess.ip
+      if (!acc[chave]) {
+        acc[chave] = {
+          chave,
+          nome: nomeDaSessao(sess),
+          sala: sess.class_code,
+          papel: sess.role,
+          sessoes: 0,
+          tempo: 0,
+          ultimo: sess.last_seen_at,
+          online: false,
+          dispositivos: new Set(),
+          ips: new Set(),
+        }
+      }
+      const item = acc[chave]
+      item.sessoes += 1
+      item.tempo   += Math.max(0, duracaoSessao(sess))
+      item.online   = item.online || isOnline(sess)
+      if (new Date(sess.last_seen_at) > new Date(item.ultimo)) item.ultimo = sess.last_seen_at
+      if (sess.device) item.dispositivos.add(sess.device)
+      if (sess.ip)     item.ips.add(sess.ip)
+      return acc
+    }, {})
+  ).sort((a, b) => new Date(b.ultimo) - new Date(a.ultimo))
+
   if (loading) return <div className="admin-loading">Carregando painel…</div>
   if (authError) return (
     <div className="admin-loading" style={{ flexDirection:'column', gap:12, padding:24, textAlign:'center' }}>
       <strong style={{ color:'#c0392b' }}>Erro de acesso</strong>
-      <code style={{ fontSize:13, background:'#f5f5f5', padding:'8px 12px', borderRadius:8, display:'block', wordBreak:'break-all' }}>{authError}</code>
+      <code style={{ fontSize:13, background:'var(--surface-secondary)', padding:'8px 12px', borderRadius:8, display:'block', wordBreak:'break-all' }}>{authError}</code>
       <button onClick={() => router.push('/')} style={{ marginTop:8, padding:'8px 20px', borderRadius:8, border:'1px solid #ccc', cursor:'pointer' }}>Voltar</button>
     </div>
   )
@@ -320,6 +442,7 @@ export default function AdminPage() {
           { id:'logs',     label:'📋 Registros' },
           { id:'subgroups',label:`🔵 Subgrupos${subgroups.length ? ` (${subgroups.length})` : ''}` },
           { id:'ips',      label:`🌐 IPs${loginLogs.length ? ` (${loginLogs.length})` : ''}` },
+          ...(isOwner ? [{ id:'presenca', label:`👁 Presença${presOnline.length ? ` · ${presOnline.length} online` : ''}` }] : []),
         ].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             style={{ whiteSpace:'nowrap', padding:'7px 14px', borderRadius:8, border:'none', cursor:'pointer', fontSize:13, fontWeight:600,
@@ -351,9 +474,9 @@ export default function AdminPage() {
               <span className="admin-campus-count">{rooms.length}</span>
             </h2>
             <div className="admin-turma">
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table className="tabela-cartao" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #eee', textAlign: 'left' }}>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                     <th style={{ padding: '6px 8px', opacity: 0.6, fontWeight: 600 }}>Chave</th>
                     <th style={{ padding: '6px 8px', opacity: 0.6, fontWeight: 600 }}>Turma</th>
                     <th style={{ padding: '6px 8px', opacity: 0.6, fontWeight: 600 }}>Campus</th>
@@ -365,15 +488,15 @@ export default function AdminPage() {
                   {rooms.map(r => {
                     const count = profiles.filter(p => p.class_code === r.class_code).length
                     return (
-                      <tr key={r.class_code} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                        <td style={{ padding: '6px 8px' }}>
-                          <code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
+                      <tr key={r.class_code} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td data-rotulo="Chave" style={{ padding: '6px 8px' }}>
+                          <code style={{ background: 'var(--surface-secondary)', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
                             {r.class_code}
                           </code>
                         </td>
-                        <td style={{ padding: '6px 8px' }}>{r.ano_turma} · {r.curso}</td>
-                        <td style={{ padding: '6px 8px', opacity: 0.7 }}>{r.campus?.replace('IFSP – ', '')}</td>
-                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>{count}</td>
+                        <td data-rotulo="Turma" style={{ padding: '6px 8px' }}>{r.ano_turma} · {r.curso}</td>
+                        <td data-rotulo="Campus" style={{ padding: '6px 8px', opacity: 0.7 }}>{r.campus?.replace('IFSP – ', '')}</td>
+                        <td data-rotulo="Membros" style={{ padding: '6px 8px', textAlign: 'center' }}>{count}</td>
                         <td style={{ padding: '6px 8px', display: 'flex', gap: 4 }}>
                           <button
                             className="admin-btn"
@@ -494,7 +617,7 @@ export default function AdminPage() {
                   <span className="admin-turma-code">{code}</span>
                   <span className="admin-turma-meta">{roomLabel(members)}</span>
                   <span className="admin-turma-count">{members.length} membros</span>
-                  <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                  <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
                     <button
                       className="admin-btn"
                       style={{ fontSize: 11, padding: '3px 10px' }}
@@ -528,7 +651,7 @@ export default function AdminPage() {
                   </div>
                 </div>
                 {expandedRoom === code && (
-                  <div style={{ padding: '8px 12px', borderTop: '1px solid #f0f0f0' }}>
+                  <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
                     {!roomTasks[code] ? (
                       <p style={{ fontSize: 13, opacity: 0.5 }}>Carregando…</p>
                     ) : roomTasks[code].length === 0 ? (
@@ -620,7 +743,9 @@ export default function AdminPage() {
               ))}
             </div>
             <p style={{ fontSize:11, opacity:0.5, marginTop:-8, marginBottom:16 }}>
-              “Abriu” = registrou login no período · “Lançou atividade” = criou tarefa (turma ou subgrupo). Contagem por pessoa, sem repetição.
+              ⚠️ “Abriu” aqui conta só quem <strong>fez login de novo</strong> no período — quem já estava logado e só abriu o app não aparece,
+              então esses números saem baixos de propósito. Para saber de verdade quem entrou, use a aba Presença.
+              “Lançou atividade” = criou tarefa (turma ou subgrupo). Contagem por pessoa, sem repetição.
             </p>
 
             {/* Quem abriu */}
@@ -631,9 +756,8 @@ export default function AdminPage() {
                   ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Ninguém abriu no período.</p>
                   : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
                       {openedList.map(u => (
-                        <span key={u.key} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
-                          background: u.recent ? '#e3f5ea' : '#f0f0f0', color: u.recent ? '#00843D' : 'var(--text-secondary)',
-                          fontWeight: u.recent ? 700 : 500 }}>
+                        <span key={u.key} className={u.recent ? 'chip-green' : 'chip-neutral'}
+                          style={{ fontSize:12, padding:'3px 9px', borderRadius:999, fontWeight: u.recent ? 700 : 500 }}>
                           {u.name}{u.sala ? ` · ${u.sala}` : ''}{u.recent ? ' · 7d' : ''}
                         </span>
                       ))}
@@ -651,9 +775,8 @@ export default function AdminPage() {
                   ? <p style={{ fontSize:13, opacity:0.5, margin:'8px 0 0' }}>Ninguém lançou atividade no período.</p>
                   : <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
                       {launchedList.map(u => (
-                        <span key={u.key} style={{ fontSize:12, padding:'3px 9px', borderRadius:999,
-                          background: u.recent ? '#e6eff7' : '#f0f0f0', color: u.recent ? '#2471a3' : 'var(--text-secondary)',
-                          fontWeight: u.recent ? 700 : 500 }}>
+                        <span key={u.key} className={u.recent ? 'chip-blue' : 'chip-neutral'}
+                          style={{ fontSize:12, padding:'3px 9px', borderRadius:999, fontWeight: u.recent ? 700 : 500 }}>
                           {u.name}{u.sala ? ` · ${u.sala}` : ''}{u.recent ? ' · 7d' : ''}
                         </span>
                       ))}
@@ -675,7 +798,7 @@ export default function AdminPage() {
                         .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
                         .map(p => (
                           <span key={p.id} title={`${p.class_code ?? '—'} · ${p.ano_turma ?? ''} ${p.curso ?? ''}`}
-                            style={{ fontSize:12, padding:'3px 9px', borderRadius:999, background:'#fdeceb', color:'#c0392b', fontWeight:500 }}>
+                            className="chip-red" style={{ fontSize:12, padding:'3px 9px', borderRadius:999, fontWeight:500 }}>
                             {p.full_name ?? '—'}{p.class_code ? ` · ${p.class_code}` : ''}
                           </span>
                         ))}
@@ -714,9 +837,9 @@ export default function AdminPage() {
             {auditLogs.length === 0
               ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum registro ainda.</p>
               : <div className="admin-turma">
-                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                  <table className="tabela-cartao" style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
-                      <tr style={{ borderBottom:'1px solid #eee', textAlign:'left', opacity:0.6 }}>
+                      <tr style={{ borderBottom:'1px solid var(--border)', textAlign:'left', opacity:0.6 }}>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Quando</th>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Quem</th>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Ação</th>
@@ -738,17 +861,17 @@ export default function AdminPage() {
                           mod_revoked: '⭐ Removeu mod',
                         }
                         return (
-                          <tr key={log.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
-                            <td style={{ padding:'5px 8px', whiteSpace:'nowrap', opacity:0.6 }}>
+                          <tr key={log.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                            <td data-rotulo="Quando" style={{ padding:'5px 8px', whiteSpace:'nowrap', opacity:0.6 }}>
                               {new Date(log.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' })} {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
                             </td>
-                            <td style={{ padding:'5px 8px', fontWeight:600 }}>{log.user_name ?? '—'}</td>
-                            <td style={{ padding:'5px 8px' }}>{actionLabels[log.action] ?? log.action}</td>
-                            <td style={{ padding:'5px 8px', opacity:0.7 }}>
+                            <td data-rotulo="Quem" style={{ padding:'5px 8px', fontWeight:600 }}>{log.user_name ?? '—'}</td>
+                            <td data-rotulo="Ação" style={{ padding:'5px 8px' }}>{actionLabels[log.action] ?? log.action}</td>
+                            <td data-rotulo="Detalhes" style={{ padding:'5px 8px', opacity:0.7 }}>
                               {log.details?.subject && <span>"{log.details.subject}"</span>}
                               {log.details?.name && <span>"{log.details.name}"</span>}
                               {log.details?.subgroup && <span>subgrupo: {log.details.subgroup}</span>}
-                              {log.class_code && <span style={{ marginLeft:6, fontSize:11, background:'#f0f0f0', padding:'1px 5px', borderRadius:4 }}>{log.class_code}</span>}
+                              {log.class_code && <span style={{ marginLeft:6, fontSize:11, background:'var(--surface-secondary)', padding:'1px 5px', borderRadius:4 }}>{log.class_code}</span>}
                             </td>
                           </tr>
                         )
@@ -767,9 +890,9 @@ export default function AdminPage() {
             {subgroups.length === 0
               ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum subgrupo criado ainda.</p>
               : <div className="admin-turma">
-                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                  <table className="tabela-cartao" style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
                     <thead>
-                      <tr style={{ borderBottom:'1px solid #eee', textAlign:'left', opacity:0.6 }}>
+                      <tr style={{ borderBottom:'1px solid var(--border)', textAlign:'left', opacity:0.6 }}>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Nome</th>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Sala</th>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Membros</th>
@@ -780,12 +903,12 @@ export default function AdminPage() {
                     </thead>
                     <tbody>
                       {subgroups.map(sg => (
-                        <tr key={sg.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
-                          <td style={{ padding:'6px 8px', fontWeight:600 }}>{sg.name}</td>
-                          <td style={{ padding:'6px 8px' }}><code style={{ background:'#f0f0f0', padding:'2px 5px', borderRadius:4 }}>{sg.class_code}</code></td>
-                          <td style={{ padding:'6px 8px', textAlign:'center' }}>{sg.subgroup_members?.[0]?.count ?? 0}</td>
-                          <td style={{ padding:'6px 8px' }}><code style={{ fontWeight:700 }}>{sg.invite_code}</code></td>
-                          <td style={{ padding:'6px 8px', opacity:0.6 }}>{new Date(sg.created_at).toLocaleDateString('pt-BR')}</td>
+                        <tr key={sg.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                          <td data-rotulo="Nome" style={{ padding:'6px 8px', fontWeight:600 }}>{sg.name}</td>
+                          <td data-rotulo="Sala" style={{ padding:'6px 8px' }}><code style={{ background:'var(--surface-secondary)', padding:'2px 5px', borderRadius:4 }}>{sg.class_code}</code></td>
+                          <td data-rotulo="Membros" style={{ padding:'6px 8px', textAlign:'center' }}>{sg.subgroup_members?.[0]?.count ?? 0}</td>
+                          <td data-rotulo="Código" style={{ padding:'6px 8px' }}><code style={{ fontWeight:700 }}>{sg.invite_code}</code></td>
+                          <td data-rotulo="Criado em" style={{ padding:'6px 8px', opacity:0.6 }}>{new Date(sg.created_at).toLocaleDateString('pt-BR')}</td>
                           <td style={{ padding:'6px 8px' }}>
                             <button
                               className="admin-btn admin-btn-danger"
@@ -816,9 +939,9 @@ export default function AdminPage() {
             {loginLogs.length === 0
               ? <p style={{ fontSize:13, color:'var(--text-muted)', padding:'16px 0' }}>Nenhum login registrado ainda.</p>
               : <div className="admin-turma">
-                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                  <table className="tabela-cartao" style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
-                      <tr style={{ borderBottom:'1px solid #eee', textAlign:'left', opacity:0.6 }}>
+                      <tr style={{ borderBottom:'1px solid var(--border)', textAlign:'left', opacity:0.6 }}>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Quando</th>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>Usuário</th>
                         <th style={{ padding:'6px 8px', fontWeight:600 }}>IP</th>
@@ -827,16 +950,16 @@ export default function AdminPage() {
                     </thead>
                     <tbody>
                       {loginLogs.map(log => (
-                        <tr key={log.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
-                          <td style={{ padding:'5px 8px', whiteSpace:'nowrap', opacity:0.6 }}>
+                        <tr key={log.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                          <td data-rotulo="Quando" style={{ padding:'5px 8px', whiteSpace:'nowrap', opacity:0.6 }}>
                             {new Date(log.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' })}{' '}
                             {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
                           </td>
-                          <td style={{ padding:'5px 8px', fontWeight:600 }}>{log.full_name ?? '—'}</td>
-                          <td style={{ padding:'5px 8px' }}>
-                            <code style={{ background:'#f0f0f0', padding:'2px 6px', borderRadius:4 }}>{log.ip ?? '—'}</code>
+                          <td data-rotulo="Usuário" style={{ padding:'5px 8px', fontWeight:600 }}>{log.full_name ?? '—'}</td>
+                          <td data-rotulo="IP" style={{ padding:'5px 8px' }}>
+                            <code style={{ background:'var(--surface-secondary)', padding:'2px 6px', borderRadius:4 }}>{log.ip ?? '—'}</code>
                           </td>
-                          <td style={{ padding:'5px 8px', opacity:0.6, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          <td data-rotulo="Aparelho" style={{ padding:'5px 8px', opacity:0.6, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                             {log.user_agent ? log.user_agent.replace(/\s*\(.*?\)\s*/g, ' ').trim().slice(0, 60) : '—'}
                           </td>
                         </tr>
@@ -845,6 +968,222 @@ export default function AdminPage() {
                   </table>
                 </div>
             }
+          </section>
+        )}
+        {/* ── Aba: Presença — EXCLUSIVA DO DONO ── */}
+        {activeTab === 'presenca' && isOwner && (
+          <section className="admin-campus-section">
+            <h2 className="admin-campus-title">
+              👁 Presença
+              <span className="admin-campus-count">{presOnline.length} online</span>
+            </h2>
+            <p className="pres-note">
+              Só você (dono) enxerga esta aba — a trava está no banco, então admin e moderador
+              não conseguem ler estes dados nem por fora do painel. Atualiza sozinho a cada 20s.
+            </p>
+
+            {/* Período + busca */}
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center', marginBottom:12 }}>
+              {[
+                { id:'hoje', label:'Hoje' },
+                { id:'7d',   label:'7 dias' },
+                { id:'30d',  label:'30 dias' },
+              ].map(r => (
+                <button key={r.id}
+                  onClick={() => { setPresRange(r.id); loadPresence(r.id) }}
+                  className={`admin-btn${presRange === r.id ? ' admin-btn-active' : ''}`}
+                  style={{ fontSize:12, padding:'5px 12px' }}>
+                  {r.label}
+                </button>
+              ))}
+              <button className="admin-btn" style={{ fontSize:12, padding:'5px 12px' }}
+                onClick={() => loadPresence()}>
+                ↻ Atualizar
+              </button>
+              <input
+                className="admin-search"
+                type="search"
+                placeholder="Filtrar por nome, IP, cidade, sala…"
+                value={presSearch}
+                onChange={e => setPresSearch(e.target.value)}
+                style={{ flex:'1 1 200px', minWidth:180, margin:0 }}
+              />
+            </div>
+
+            {/* Números */}
+            <div className="pres-grid">
+              {[
+                { label:'Online agora',            value:presOnline.length,   color:'var(--ok-green)' },
+                { label:'Aberturas no período',    value:presFiltradas.length, color:'var(--green-primary)' },
+                { label:'Pessoas diferentes',      value:presPessoas,         color:'#2471a3' },
+                { label:'Sem estar logado',        value:presVisitas,         color:'var(--orange)' },
+                { label:'Tempo médio por acesso',  value:fmtDuracao(presMedia), color:'var(--text-primary)', pequeno:true },
+              ].map(c => (
+                <div key={c.label} className="pres-stat">
+                  <div className="pres-stat-num" style={{ color:c.color, fontSize: c.pequeno ? 19 : undefined }}>{c.value}</div>
+                  <div className="pres-stat-label">{c.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Online agora */}
+            <div style={{ marginBottom:16 }}>
+              <strong style={{ fontSize:14, display:'block', marginBottom:8 }}>
+                🟢 Dentro do app agora <span style={{ opacity:0.5 }}>({presOnline.length})</span>
+              </strong>
+              {presOnline.length === 0
+                ? <p style={{ fontSize:13, color:'var(--text-muted)' }}>Ninguém com o app aberto neste instante.</p>
+                : <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    {presOnline.map(sess => (
+                      <div key={sess.id} className="pres-card">
+                        <span className="pres-dot" />
+                        <div style={{ minWidth:0, flex:1 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                            <span className="pres-name">{nomeDaSessao(sess)}</span>
+                            <span className={`pres-tag ${sess.role ?? 'visitante'}`}>{sess.role ?? 'visitante'}</span>
+                            {sess.class_code && <span className="pres-tag">{sess.class_code}</span>}
+                            {sess.is_pwa && <span className="pres-tag">app instalado</span>}
+                          </div>
+                          <div className="pres-meta">
+                            Entrou {fmtHora(sess.started_at)} · {fmtDuracao(agora - new Date(sess.started_at).getTime())} dentro
+                            {' · '}{sess.device ?? '—'} / {sess.browser ?? '—'}
+                            <br />
+                            {localDaSessao(sess)} · <span className="pres-ip">{sess.ip ?? '—'}</span>
+                            {sess.entry_path && sess.entry_path !== '/' ? ` · abriu em ${sess.entry_path}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </div>
+
+            {/* Entradas e saídas */}
+            <div style={{ marginBottom:16 }}>
+              <strong style={{ fontSize:14, display:'block', marginBottom:8 }}>
+                🚪 Entradas e saídas <span style={{ opacity:0.5 }}>({presFiltradas.length})</span>
+              </strong>
+              {presFiltradas.length === 0
+                ? <p style={{ fontSize:13, color:'var(--text-muted)' }}>Nenhum acesso registrado no período.</p>
+                : <div className="admin-turma pres-scroll">
+                    <table className="pres-table">
+                      <thead>
+                        <tr>
+                          <th>Quem</th>
+                          <th>Entrou</th>
+                          <th>Saiu</th>
+                          <th>Ficou</th>
+                          <th>Aparelho</th>
+                          <th>Onde</th>
+                          <th>IP</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {presFiltradas.slice(0, 300).map(sess => {
+                          const online = isOnline(sess)
+                          return (
+                            <tr key={sess.id}>
+                              <td>
+                                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                  <span className={`pres-dot${online ? '' : ' off'}`} style={{ marginTop:0 }} />
+                                  <div style={{ minWidth:0 }}>
+                                    <div style={{ fontWeight:700 }}>{nomeDaSessao(sess)}</div>
+                                    <div style={{ fontSize:10.5, color:'var(--text-muted)' }}>
+                                      {sess.role ?? 'visitante'}{sess.class_code ? ` · ${sess.class_code}` : ''}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td data-rotulo="Entrou" style={{ whiteSpace:'nowrap' }}>
+                                {presRange !== 'hoje' && <span style={{ opacity:0.55 }}>{fmtDia(sess.started_at)} </span>}
+                                {fmtHora(sess.started_at)}
+                              </td>
+                              <td data-rotulo="Saiu" style={{ whiteSpace:'nowrap' }}>
+                                {online
+                                  ? <span style={{ color:'var(--ok-green)', fontWeight:700 }}>ainda dentro</span>
+                                  : sess.ended_at
+                                    ? <>
+                                        {fmtHora(sess.ended_at)}
+                                        <div style={{ fontSize:10, color:'var(--text-muted)' }}>{sess.end_reason ?? ''}</div>
+                                      </>
+                                    : <>
+                                        {fmtHora(sess.last_seen_at)}
+                                        <div style={{ fontSize:10, color:'var(--text-muted)' }}>último sinal</div>
+                                      </>
+                                }
+                              </td>
+                              <td data-rotulo="Ficou" style={{ whiteSpace:'nowrap' }}>{fmtDuracao(duracaoSessao(sess))}</td>
+                              <td data-rotulo="Aparelho">
+                                {sess.device ?? '—'}
+                                <div style={{ fontSize:10, color:'var(--text-muted)' }}>
+                                  {[sess.os, sess.browser].filter(Boolean).join(' · ')}{sess.is_pwa ? ' · app' : ''}
+                                </div>
+                              </td>
+                              <td data-rotulo="Onde">{localDaSessao(sess)}</td>
+                              <td data-rotulo="IP"><span className="pres-ip">{sess.ip ?? '—'}</span></td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {presFiltradas.length > 300 && (
+                      <p style={{ fontSize:11, color:'var(--text-muted)', padding:'8px 10px' }}>
+                        Mostrando os 300 acessos mais recentes de {presFiltradas.length}.
+                      </p>
+                    )}
+                  </div>
+              }
+            </div>
+
+            {/* Resumo por pessoa */}
+            <div>
+              <strong style={{ fontSize:14, display:'block', marginBottom:8 }}>
+                👤 Por pessoa no período <span style={{ opacity:0.5 }}>({presPorPessoa.length})</span>
+              </strong>
+              {presPorPessoa.length === 0
+                ? <p style={{ fontSize:13, color:'var(--text-muted)' }}>Nada por aqui ainda.</p>
+                : <div className="admin-turma pres-scroll">
+                    <table className="pres-table">
+                      <thead>
+                        <tr>
+                          <th>Quem</th>
+                          <th>Aberturas</th>
+                          <th>Tempo total</th>
+                          <th>Último acesso</th>
+                          <th>Aparelhos</th>
+                          <th>IPs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {presPorPessoa.map(item => (
+                          <tr key={item.chave}>
+                            <td>
+                              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                <span className={`pres-dot${item.online ? '' : ' off'}`} style={{ marginTop:0 }} />
+                                <div>
+                                  <div style={{ fontWeight:700 }}>{item.nome}</div>
+                                  <div style={{ fontSize:10.5, color:'var(--text-muted)' }}>
+                                    {item.papel ?? 'visitante'}{item.sala ? ` · ${item.sala}` : ''}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td data-rotulo="Aberturas">{item.sessoes}</td>
+                            <td data-rotulo="Tempo total" style={{ whiteSpace:'nowrap' }}>{fmtDuracao(item.tempo)}</td>
+                            <td data-rotulo="Último" style={{ whiteSpace:'nowrap' }}>{haQuantoTempo(item.ultimo)}</td>
+                            <td data-rotulo="Aparelhos">{[...item.dispositivos].join(', ') || '—'}</td>
+                            <td data-rotulo="IPs">
+                              {[...item.ips].map(ip => (
+                                <span key={ip} className="pres-ip" style={{ marginRight:4, display:'inline-block', marginBottom:2 }}>{ip}</span>
+                              ))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+              }
+            </div>
           </section>
         )}
       </main>

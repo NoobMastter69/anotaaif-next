@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
+import ThemeToggle from './ThemeToggle'
 import AuthScreen from './AuthScreen'
 
 // ── Filtro de palavrões e nomes sensíveis ────────────
@@ -1736,6 +1737,8 @@ export default function AnotaAIF() {
               </button>
             )}
 
+            <ThemeToggle className="btn-calendar" />
+
             <button
               className="btn-calendar"
               onClick={() => router.push('/calendario')}
@@ -2346,9 +2349,9 @@ export default function AnotaAIF() {
                   onClick={() => { if (!uploadingFile) fileInputRef.current?.click() }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 12px', borderRadius: 8, border: '1.5px dashed #aaa',
+                    padding: '6px 12px', borderRadius: 8,
                     background: 'transparent', cursor: uploadingFile ? 'not-allowed' : 'pointer',
-                    fontSize: 13, color: '#555', fontWeight: 500,
+                    fontSize: 13, fontWeight: 500,
                   }}
                 >
                   {uploadingFile ? (
@@ -2458,7 +2461,7 @@ export default function AnotaAIF() {
             </div>
             <ul style={{ listStyle:'none', padding:'0 20px 24px', display:'flex', flexDirection:'column', gap:8 }}>
               {members.map((m, i) => (
-                <li key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid #f0f0f0' }}>
+                <li key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid var(--border)' }}>
                   <div style={{ width:36, height:36, borderRadius:'50%', background:'#E8F5E9', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, color:'#00843D', fontSize:15, flexShrink:0 }}>
                     {m.full_name?.[0]?.toUpperCase() ?? '?'}
                   </div>
@@ -2523,7 +2526,7 @@ export default function AnotaAIF() {
                   </div>
                   <p style={{ margin:'0 0 8px', fontSize:11, opacity:0.5 }}>{new Date(d.created_at).toLocaleDateString('pt-BR')}</p>
                   {(d.doubt_replies ?? []).map(r => (
-                    <div key={r.id} style={{ marginLeft:12, padding:'6px 10px', background:'#fff', borderRadius:8, marginBottom:4, fontSize:12 }}>
+                    <div key={r.id} style={{ marginLeft:12, padding:'6px 10px', background:'var(--surface-secondary)', borderRadius:8, marginBottom:4, fontSize:12 }}>
                       <strong>{r.user_name}</strong>: {r.reply}
                     </div>
                   ))}

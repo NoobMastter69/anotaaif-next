@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
+import ThemeToggle from '../components/ThemeToggle'
 
 const BLOCKED = [
   // Palavrões PT-BR
@@ -117,42 +118,42 @@ export default function PerfilPage() {
   const initial = (profile?.full_name ?? name ?? '?')[0]?.toUpperCase()
 
   if (loading) return (
-    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F4F6F4' }}>
-      <p style={{ color:'#9AAA98' }}>Carregando…</p>
+    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg)' }}>
+      <p style={{ color:'var(--text-muted)' }}>Carregando…</p>
     </div>
   )
 
   if (resetMode) return (
-    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'#F4F6F4', padding:'24px' }}>
-      <div style={{ background:'#fff', borderRadius:16, padding:'32px 28px', maxWidth:400, width:'100%', boxShadow:'0 2px 16px rgba(0,0,0,.08)' }}>
+    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg)', padding:'24px' }}>
+      <div style={{ background:'var(--surface)', borderRadius:16, padding:'32px 28px', maxWidth:400, width:'100%', boxShadow:'0 2px 16px rgba(0,0,0,.08)' }}>
         <div style={{ textAlign:'center', marginBottom:24 }}>
           <div style={{ fontSize:36, marginBottom:8 }}>🔐</div>
-          <h1 style={{ margin:0, fontSize:22, fontWeight:700, color:'#111' }}>Nova senha</h1>
-          <p style={{ margin:'8px 0 0', fontSize:14, color:'#777' }}>Digite sua nova senha abaixo.</p>
+          <h1 style={{ margin:0, fontSize:22, fontWeight:700, color:'var(--text-primary)' }}>Nova senha</h1>
+          <p style={{ margin:'8px 0 0', fontSize:14, color:'var(--text-secondary)' }}>Digite sua nova senha abaixo.</p>
         </div>
         {resetSuccess ? (
           <div style={{ textAlign:'center', padding:'16px 0' }}>
             <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
             <p style={{ fontWeight:700, color:'#00843D', margin:0 }}>Senha atualizada com sucesso!</p>
-            <p style={{ fontSize:13, color:'#777', marginTop:6 }}>Redirecionando…</p>
+            <p style={{ fontSize:13, color:'var(--text-secondary)', marginTop:6 }}>Redirecionando…</p>
           </div>
         ) : (
           <form onSubmit={handleResetPassword} noValidate>
             <div style={{ marginBottom:16 }}>
-              <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#444', marginBottom:6 }}>Nova senha</label>
+              <label style={{ display:'block', fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:6 }}>Nova senha</label>
               <input
                 type="password" placeholder="Mínimo 6 caracteres"
                 value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                style={{ width:'100%', padding:'10px 14px', border:'1.5px solid #ddd', borderRadius:10, fontSize:14, boxSizing:'border-box' }}
+                style={{ width:'100%', padding:'10px 14px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:14, boxSizing:'border-box', background:'var(--surface)', color:'var(--text-primary)' }}
                 autoFocus
               />
             </div>
             <div style={{ marginBottom:20 }}>
-              <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#444', marginBottom:6 }}>Confirmar senha</label>
+              <label style={{ display:'block', fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:6 }}>Confirmar senha</label>
               <input
                 type="password" placeholder="Repita a senha"
                 value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-                style={{ width:'100%', padding:'10px 14px', border:'1.5px solid #ddd', borderRadius:10, fontSize:14, boxSizing:'border-box' }}
+                style={{ width:'100%', padding:'10px 14px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:14, boxSizing:'border-box', background:'var(--surface)', color:'var(--text-primary)' }}
               />
             </div>
             {resetError && <p style={{ color:'#e74c3c', fontSize:13, margin:'0 0 12px' }}>{resetError}</p>}
@@ -208,6 +209,13 @@ export default function PerfilPage() {
           >
             {saving ? 'Salvando…' : 'Salvar nome'}
           </button>
+        </section>
+
+        {/* Card: Aparência */}
+        <section className="perfil-card">
+          <h2 className="perfil-card-title">Aparência</h2>
+          <p className="perfil-card-hint">Escolha entre o tema claro e o escuro. A preferência fica salva neste aparelho.</p>
+          <ThemeToggle className="theme-card-btn" />
         </section>
 
         {/* Card: Turma */}

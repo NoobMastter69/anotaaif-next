@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import ThemeToggle from './ThemeToggle'
 
 // Gerador de e-mail interno (usado pelo Supabase Auth)
 export function nameToEmail(fullName) {
@@ -300,6 +301,7 @@ export default function AuthScreen({ onAuth }) {
 
   return (
     <div className="auth-screen">
+      <ThemeToggle className="auth-theme-btn" />
       <div className="auth-bg" aria-hidden="true">
         <div className="auth-blob auth-blob-1" />
         <div className="auth-blob auth-blob-2" />

@@ -3580,3 +3580,478 @@ body {
   text-decoration: line-through;
   border-color: #e0e0e0;
 }
+
+/* ══════════════════════════════════════════════════════
+   MODO ESCURO
+   Ativado por data-theme="dark" no <html> (definido antes
+   da primeira pintura pelo script do layout.js).
+   O modo claro continua exatamente como era.
+   ══════════════════════════════════════════════════════ */
+
+:root { --white: #FFFFFF; }
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Verde IF — clareado pra ter contraste sobre fundo escuro */
+  --green-primary : #2FB35F;
+  --green-dark    : #1E8C48;
+  --green-light   : #5FD189;
+  --green-pale    : #123722;
+
+  /* Acentos */
+  --magenta-pale  : #2C1033;
+  --magenta-border: #6B2A78;
+  --red-pale      : #2E1618;
+  --orange-pale   : #2E2410;
+  --ok-pale       : #123722;
+
+  /* Superfícies */
+  --bg                : #131A15;
+  --surface           : #1B241D;
+  --surface-secondary : #232E25;
+  --border            : #2D3A2F;
+  --border-strong     : #41523F;
+  --white             : #1B241D;   /* usado como superfície em alguns componentes */
+
+  /* Tipografia */
+  --text-primary   : #E7EDE6;
+  --text-secondary : #A8B6A6;
+  --text-muted     : #788877;
+
+  /* Sombras mais fundas */
+  --shadow-card : 0 1px 3px rgba(0,0,0,0.45), 0 1px 10px rgba(0,0,0,0.30);
+  --shadow-fab  : 0 8px 28px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(47, 179, 95, 0.25);
+}
+
+html[data-theme="dark"] body { background: #0B0F0C; }
+html[data-theme="dark"] #app { box-shadow: 0 0 80px rgba(0,0,0,0.6); }
+
+/* ─── Barras verdes: escurecidas, mantendo a identidade ── */
+html[data-theme="dark"] .header {
+  background: linear-gradient(155deg, #04361D 0%, #0A5730 60%, #0B6B3A 100%);
+}
+html[data-theme="dark"] .admin-header,
+html[data-theme="dark"] .cal-header {
+  background: linear-gradient(135deg, #0A5730 0%, #04361D 100%);
+}
+html[data-theme="dark"] .perfil-header { background: #0A5730; }
+html[data-theme="dark"] .auth-screen {
+  background: linear-gradient(145deg, #0A5730 0%, #063B21 55%, #032715 100%);
+}
+html[data-theme="dark"] .auth-blob-1,
+html[data-theme="dark"] .auth-blob-2 { background: #2FB35F; opacity: 0.10; }
+
+/* ─── Superfícies que estavam com branco fixo ─────────── */
+html[data-theme="dark"] .perfil-page   { background: var(--bg); }
+html[data-theme="dark"] .perfil-card,
+html[data-theme="dark"] .auth-card,
+html[data-theme="dark"] .ios-modal,
+html[data-theme="dark"] .fab-sub-label,
+html[data-theme="dark"] .subject-suggestions,
+html[data-theme="dark"] .admin-btn      { background: var(--surface); color: var(--text-primary); }
+
+html[data-theme="dark"] .form-input:focus,
+html[data-theme="dark"] .form-textarea:focus { background: var(--surface); color: var(--text-primary); }
+html[data-theme="dark"] .form-input.error,
+html[data-theme="dark"] .form-textarea.error { background: #2E1618; color: var(--text-primary); }
+html[data-theme="dark"] .auth-tab.active     { background: var(--surface); color: var(--green-light); }
+html[data-theme="dark"] .auth-field input    { background: var(--surface-secondary); color: var(--text-primary); }
+html[data-theme="dark"] .auth-new-room-code  { background: var(--surface-secondary); color: var(--green-light); }
+html[data-theme="dark"] .notif-banner-btn    { background: rgba(255,255,255,0.92); color: #0A5730; }
+html[data-theme="dark"] .btn-install         { background: rgba(255,255,255,0.90); }
+
+/* ─── Cartão de tarefa: realce de atraso em versão escura ── */
+html[data-theme="dark"] .urgency-overdue:not(.done) {
+  background: linear-gradient(90deg, #2E1618 0%, var(--surface) 30%);
+}
+
+/* ─── Chips de datas extras ───────────────────────────── */
+html[data-theme="dark"] .task-date-chip {
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+html[data-theme="dark"] .task-date-chip.past {
+  background: var(--surface-secondary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+html[data-theme="dark"] .multiday-toggle-track       { background: #3A473B; }
+html[data-theme="dark"] .multiday-toggle-track.on    { background: var(--green-primary); }
+html[data-theme="dark"] .multiday-toggle-thumb       { background: #E7EDE6; }
+html[data-theme="dark"] .multiday-toggle-label       { color: var(--text-primary); }
+
+/* ─── Painel admin ────────────────────────────────────── */
+html[data-theme="dark"] .role-admin   { background: #123722; color: var(--green-light); }
+html[data-theme="dark"] .role-mod     { background: #10263C; color: #7EB6E8; }
+html[data-theme="dark"] .role-student { background: var(--surface-secondary); color: var(--text-muted); }
+html[data-theme="dark"] .admin-badge-kick   { background: #33240D; color: #F0A755; }
+html[data-theme="dark"] .admin-btn-active   { background: #123722; color: var(--green-light); border-color: var(--green-primary); }
+html[data-theme="dark"] .admin-btn-danger   { background: #331617; color: #F08A8A; border-color: #5B2A2C; }
+html[data-theme="dark"] .admin-flash        { background: #E7EDE6; color: #0B0F0C; }
+
+/* ══════════════════════════════════════════════════════
+   BOTÃO DE TEMA (fica na barra verde, junto de Sair)
+   ══════════════════════════════════════════════════════ */
+.btn-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 999px;
+  padding: 5px 11px;
+  color: rgba(255,255,255,0.85);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-theme svg { width: 14px; height: 14px; flex-shrink: 0; }
+.btn-theme:hover { background: rgba(255,255,255,0.18); color: #fff; }
+
+/* Versão em cartão (tela de perfil) */
+.theme-card-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 16px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.theme-card-btn svg { width: 17px; height: 17px; color: var(--green-primary); }
+.theme-card-btn:hover { border-color: var(--green-primary); }
+
+/* ══════════════════════════════════════════════════════
+   PAINEL DE PRESENÇA (visível somente para o dono)
+   ══════════════════════════════════════════════════════ */
+.pres-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pres-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+}
+.pres-stat-num   { font-size: 26px; font-weight: 800; line-height: 1; font-family: var(--font-display); }
+.pres-stat-label { font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; }
+
+.pres-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.pres-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+  background: var(--ok-green);
+  box-shadow: 0 0 0 3px rgba(34,197,94,0.18);
+  animation: presPulse 2s ease-in-out infinite;
+}
+.pres-dot.off { background: var(--border-strong); box-shadow: none; animation: none; }
+@keyframes presPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
+  50%      { box-shadow: 0 0 0 6px rgba(34,197,94,0.05); }
+}
+.pres-name { font-size: 13.5px; font-weight: 700; font-family: var(--font-display); }
+.pres-meta { font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; line-height: 1.5; }
+.pres-tag {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+}
+.pres-tag.dono      { background: var(--green-pale); color: var(--green-primary); }
+.pres-tag.admin     { background: var(--green-pale); color: var(--green-primary); }
+.pres-tag.moderador { background: var(--magenta-pale); color: var(--magenta-mid); }
+.pres-tag.visitante { background: var(--orange-pale); color: var(--orange); }
+
+.pres-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pres-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.pres-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pres-table tr:last-child td { border-bottom: none; }
+.pres-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pres-ip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: var(--surface-secondary);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.pres-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin: 6px 0 14px;
+}
+
+/* ─── Chips do painel (claro + escuro) ────────────────── */
+.chip-green   { background: #E3F5EA; color: #00843D; }
+.chip-blue    { background: #E6EFF7; color: #2471A3; }
+.chip-red     { background: #FDECEB; color: #C0392B; }
+.chip-neutral { background: #F0F0F0; color: var(--text-secondary); }
+
+html[data-theme="dark"] .chip-green   { background: #123722; color: #5FD189; }
+html[data-theme="dark"] .chip-blue    { background: #10263C; color: #7EB6E8; }
+html[data-theme="dark"] .chip-red     { background: #331617; color: #F08A8A; }
+html[data-theme="dark"] .chip-neutral { background: var(--surface-secondary); color: var(--text-secondary); }
+
+/* ══════════════════════════════════════════════════════
+   CORREÇÃO — faixa da sidebar no desktop
+   O #app pintava a coluna de 268px de verde por trás da
+   sidebar, mas com um tom diferente do gradiente do .header
+   — dava aquele degrau de "duas barras". Como a sidebar é
+   sticky e sempre cobre a coluna inteira dentro da tela,
+   essa faixa não serve pra nada: tirando ela, sobra uma
+   barra verde só. O gradiente também virou vertical, assim
+   cada linha tem uma cor só e não há emenda diagonal.
+   ══════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+  /* Cor chapada: com gradiente é impossível a faixa do #app casar com o
+     .header em toda a altura. Chapado, as duas usam o MESMO valor e a
+     emenda desaparece — vira uma barra verde só. */
+  .header {
+    background: var(--green-primary);
+  }
+  #app {
+    background: linear-gradient(90deg, var(--green-primary) 268px, var(--bg) 268px);
+  }
+
+  html[data-theme="dark"] .header {
+    background: #0A5730;
+  }
+  html[data-theme="dark"] #app {
+    background: linear-gradient(90deg, #0A5730 268px, var(--bg) 268px);
+  }
+}
+
+/* ── Botões do rodapé do cartão (Dúvidas / Material) no modo escuro ──
+   Estavam com fundo branco translúcido e texto cinza: cinza no cinza,
+   ilegível. Aqui viram fundo escuro translúcido com texto claro. */
+html[data-theme="dark"] .task-footer-btn {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.18);
+  color: var(--text-primary);
+}
+html[data-theme="dark"] .task-footer-btn:hover { background: rgba(255,255,255,0.16); }
+html[data-theme="dark"] .task-footer-material {
+  color: var(--green-light);
+  border-color: rgba(95,209,137,0.45);
+}
+
+/* ── Botão "Enviar arquivo" ──
+   As cores saíram do inline style pra cá, senão não dava pra trocar no escuro. */
+.btn-upload-file {
+  border: 1.5px dashed var(--border-strong);
+  color: var(--text-secondary);
+}
+.btn-upload-file:hover:not(:disabled) {
+  border-color: var(--green-primary);
+  color: var(--green-primary);
+}
+
+/* ══════════════════════════════════════════════════════
+   Botão de tema na tela de login
+   ══════════════════════════════════════════════════════ */
+.auth-theme-btn {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  right: 16px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.16);
+  border: 1.5px solid rgba(255,255,255,0.32);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.18s;
+}
+.auth-theme-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.auth-theme-btn:hover { background: rgba(255,255,255,0.28); }
+
+/* ══════════════════════════════════════════════════════
+   Presença — versão em cartão nas telas estreitas
+   Nenhuma informação sai da tela nem precisa rolar de lado.
+   ══════════════════════════════════════════════════════ */
+@media (max-width: 620px) {
+  .pres-table, .pres-table tbody, .pres-table tr, .pres-table td,
+  .tabela-cartao, .tabela-cartao tbody, .tabela-cartao tr, .tabela-cartao td { display: block; width: 100%; }
+  .pres-table thead, .tabela-cartao thead { display: none; }
+
+  .pres-table tr {
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: var(--surface);
+  }
+  .pres-table td {
+    border: none;
+    padding: 3px 0;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  /* O rótulo da coluna vira prefixo da linha */
+  .pres-table td::before {
+    content: attr(data-rotulo);
+    flex: 0 0 82px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+    padding-top: 1px;
+  }
+  /* A primeira célula (quem) é o título do cartão, sem rótulo */
+  .pres-table td:first-child { padding-bottom: 6px; }
+  .pres-table td:first-child::before { content: none; }
+
+  .pres-table td > * { min-width: 0; }
+  .pres-scroll { overflow-x: visible; }
+  .pres-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+  .pres-stat { padding: 10px 11px; }
+  .pres-stat-num { font-size: 22px; }
+  .pres-stat-label { font-size: 10.5px; }
+}
+
+/* Telas bem pequenas (iPhone SE / 320px): tudo quebra em duas linhas */
+@media (max-width: 380px) {
+  .pres-table td { flex-direction: column; gap: 1px; }
+  .pres-table td::before { flex: none; }
+  .pres-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ══════════════════════════════════════════════════════
+   Telas estreitas (até 400px — iPhone SE, Android básico)
+   Nome de matéria comprido era cortado com "…" e a pessoa
+   não conseguia ler. Aqui ele quebra em duas linhas em vez
+   de sumir. Acima de 400px continua com o corte de antes.
+   ══════════════════════════════════════════════════════ */
+@media (max-width: 400px) {
+  .task-subject {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
+  }
+  .task-header-row { align-items: flex-start; }
+}
+
+/* ══════════════════════════════════════════════════════
+   Correções encontradas na varredura de contraste
+   (fundo claro sobrando com texto claro por cima)
+   ══════════════════════════════════════════════════════ */
+
+/* Bloco de "múltiplas datas": fundo #f7f9f7 fixo, texto claro em cima */
+html[data-theme="dark"] .multiday-group {
+  background: var(--surface-secondary);
+  border-color: var(--border);
+}
+
+/* Snackbar: usava var(--text-primary) de fundo com texto branco.
+   No escuro esse token vira claro → branco no branco. */
+html[data-theme="dark"] .snackbar {
+  background: #E7EDE6;
+  color: #0B0F0C;
+}
+html[data-theme="dark"] .snackbar-action { color: #0B0F0C; }
+html[data-theme="dark"] .perfil-code-btn {
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+html[data-theme="dark"] .cal-cell--ghost { background: var(--bg); }
+html[data-theme="dark"] .snackbar-action:hover { background: rgba(0,0,0,0.08); }
+
+/* Seletor Prova / Atividade / Evento: pastéis claros viravam manchas
+   brancas no modal escuro. Aqui viram tons escuros da mesma cor. */
+html[data-theme="dark"] .type-option.selected-prova {
+  background: #331617; color: #F08A8A; border-color: #B91C1C;
+}
+html[data-theme="dark"] .type-option.selected-atividade {
+  background: #10263C; color: #8FC4F0; border-color: #2563EB;
+}
+html[data-theme="dark"] .type-option.selected-evento {
+  background: #2C1033; color: #E9A8F5;
+}
+
+/* ══════════════════════════════════════════════════════
+   Tabelas antigas do painel (Salas, Registros, Subgrupos,
+   IPs) em telas estreitas. Antes elas empurravam a página
+   inteira pra fora da tela no celular.
+   ══════════════════════════════════════════════════════ */
+@media (max-width: 620px) {
+  .tabela-cartao tr {
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: var(--surface);
+  }
+  .tabela-cartao td {
+    border: none !important;
+    padding: 3px 0 !important;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .tabela-cartao td::before {
+    content: attr(data-rotulo);
+    flex: 0 0 82px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+    padding-top: 1px;
+  }
+  .tabela-cartao td:first-child { padding-bottom: 6px !important; }
+  .tabela-cartao td:first-child::before { content: none; }
+  .tabela-cartao td:empty { display: none; }
+}
+@media (max-width: 380px) {
+  .tabela-cartao td { flex-direction: column; gap: 1px; }
+  .tabela-cartao td::before { flex: none; }
+}
