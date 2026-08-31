@@ -4104,3 +4104,40 @@ html[data-theme="dark"] .cal-cell--today .cal-day-num {
 /* A barra do seletor de sala usava var(--green-primary) e ficava
    verde-neon no escuro, igual acontecia na faixa do calendário. */
 html[data-theme="dark"] .selector-header { background: #0A5730; }
+
+/* ══════════════════════════════════════════════════════
+   Calendário — tom de fundo dos dias com evento
+   Antes vinha por inline style com um pastel claro fixo
+   (feriado #FFF8E1, etc.), então no modo escuro o dia
+   ficava quase branco com o número claro por cima —
+   impossível de ler. Agora vem daqui, com versão pros
+   dois temas. No claro as cores são as mesmas de antes.
+   ══════════════════════════════════════════════════════ */
+.cal-cell[data-evento="feriado"]:not(.cal-cell--selected)      { background: #FFF8E1; }
+.cal-cell[data-evento="recesso"]:not(.cal-cell--selected)      { background: #F3F4F6; }
+.cal-cell[data-evento="evento"]:not(.cal-cell--selected)       { background: #F5F3FF; }
+.cal-cell[data-evento="inicio_aulas"]:not(.cal-cell--selected) { background: #E8F5E9; }
+.cal-cell[data-evento="fim_aulas"]:not(.cal-cell--selected)    { background: #FEF2F2; }
+.cal-cell[data-evento="avaliacao"]:not(.cal-cell--selected)    { background: #EFF6FF; }
+
+.cal-detail-item[data-evento="feriado"]      { background: #FFF8E1; }
+.cal-detail-item[data-evento="recesso"]      { background: #F3F4F6; }
+.cal-detail-item[data-evento="evento"]       { background: #F5F3FF; }
+.cal-detail-item[data-evento="inicio_aulas"] { background: #E8F5E9; }
+.cal-detail-item[data-evento="fim_aulas"]    { background: #FEF2F2; }
+.cal-detail-item[data-evento="avaliacao"]    { background: #EFF6FF; }
+
+/* No escuro, o mesmo matiz em tom fundo — dá pra ver que o dia é
+   especial e o número continua legível. */
+html[data-theme="dark"] .cal-cell[data-evento="feriado"]:not(.cal-cell--selected),
+html[data-theme="dark"] .cal-detail-item[data-evento="feriado"]      { background: #33280D; }
+html[data-theme="dark"] .cal-cell[data-evento="recesso"]:not(.cal-cell--selected),
+html[data-theme="dark"] .cal-detail-item[data-evento="recesso"]      { background: #262A2F; }
+html[data-theme="dark"] .cal-cell[data-evento="evento"]:not(.cal-cell--selected),
+html[data-theme="dark"] .cal-detail-item[data-evento="evento"]       { background: #251C3D; }
+html[data-theme="dark"] .cal-cell[data-evento="inicio_aulas"]:not(.cal-cell--selected),
+html[data-theme="dark"] .cal-detail-item[data-evento="inicio_aulas"] { background: #123722; }
+html[data-theme="dark"] .cal-cell[data-evento="fim_aulas"]:not(.cal-cell--selected),
+html[data-theme="dark"] .cal-detail-item[data-evento="fim_aulas"]    { background: #331617; }
+html[data-theme="dark"] .cal-cell[data-evento="avaliacao"]:not(.cal-cell--selected),
+html[data-theme="dark"] .cal-detail-item[data-evento="avaliacao"]    { background: #10263C; }

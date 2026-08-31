@@ -9,7 +9,7 @@ export function applyTheme(theme) {
   const dark = theme === 'dark'
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute('content', dark ? '#0F1511' : '#00843D')
+  if (meta) meta.setAttribute('content', dark ? '#04361D' : '#00843D')
   window.dispatchEvent(new Event(EVENT))
 }
 
@@ -31,7 +31,9 @@ export default function ThemeToggle({ className = '', showLabel = true }) {
   const dark  = theme === 'dark'
 
   function toggle() {
-    const next = dark ? 'light' : 'dark'
+    // Lê o tema atual do DOM, não da renderização: dois toques seguidos
+    // antes do React re-renderizar usariam o mesmo valor antigo.
+    const next = getSnapshot() === 'dark' ? 'light' : 'dark'
     applyTheme(next)
     try { localStorage.setItem(THEME_KEY, next) } catch { /* modo privado */ }
   }

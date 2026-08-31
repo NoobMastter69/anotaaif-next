@@ -225,10 +225,9 @@ export default function CalendarioPage() {
                   const isSelected = dateStr === selectedDay
                   const hasData    = dayTasks.length > 0 || dayEvents.length > 0
 
-                  let cellBg = ''
-                  if (dayEvents.length > 0) {
-                    cellBg = EVENT_META[dayEvents[0].type]?.bg ?? ''
-                  }
+                  // O tom do dia vem do CSS (data-evento), nunca de inline
+                  // style, senao o modo escuro nao consegue sobrescrever.
+                  const cellEvento = dayEvents.length > 0 ? dayEvents[0].type : null
 
                   return (
                     <button
@@ -239,7 +238,7 @@ export default function CalendarioPage() {
                         isSelected ? 'cal-cell--selected' : '',
                         hasData    ? 'cal-cell--has-data'  : '',
                       ].join(' ').trim()}
-                      style={cellBg && !isSelected ? { backgroundColor: cellBg } : {}}
+                      data-evento={cellEvento ?? undefined}
                       onClick={() => setSelectedDay(prev => prev === dateStr ? null : dateStr)}
                       aria-label={`${cell.day} de ${MONTH_NAMES[month]}`}
                       aria-pressed={isSelected}
@@ -315,8 +314,8 @@ export default function CalendarioPage() {
                   {selEvents.map(ev => {
                     const meta = EVENT_META[ev.type] ?? {}
                     return (
-                      <div key={ev.id} className="cal-detail-item"
-                        style={{ borderLeftColor: meta.color, backgroundColor: meta.bg }}>
+                      <div key={ev.id} className="cal-detail-item" data-evento={ev.type}
+                        style={{ borderLeftColor: meta.color }}>
                         <span className="cal-detail-item-type" style={{ color: meta.color }}>
                           {meta.label}
                         </span>

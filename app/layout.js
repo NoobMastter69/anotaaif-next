@@ -61,7 +61,7 @@ export default function RootLayout({ children }) {
               }
               document.documentElement.dataset.theme = t;
               var m = document.querySelector('meta[name="theme-color"]');
-              if (m) m.setAttribute('content', t === 'dark' ? '#0F1511' : '#00843D');
+              if (m) m.setAttribute('content', t === 'dark' ? '#04361D' : '#00843D');
             } catch (e) {
               document.documentElement.dataset.theme = 'light';
             }
